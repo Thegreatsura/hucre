@@ -1,6 +1,11 @@
+// ── High-Level API ──────────────────────────────────────────────────
+export { read, write, readObjects, writeObjects } from "./defter";
+
 // ── XLSX ────────────────────────────────────────────────────────────
 export { readXlsx } from "./xlsx/reader";
 export { writeXlsx } from "./xlsx/writer";
+export { openXlsx, saveXlsx } from "./xlsx/roundtrip";
+export type { RoundtripWorkbook } from "./xlsx/roundtrip";
 export { hashSheetPassword } from "./xlsx/password";
 export { streamXlsxRows } from "./xlsx/stream-reader";
 export type { StreamRow } from "./xlsx/stream-reader";
@@ -36,6 +41,18 @@ export {
   serialToTime,
   timeToSerial,
 } from "./_date";
+
+// ── Sheet Operations ──────────────────────────────────────────────
+export {
+  insertRows,
+  deleteRows,
+  insertColumns,
+  deleteColumns,
+  moveRows,
+  hideRows,
+  hideColumns,
+  groupRows,
+} from "./sheet-ops";
 
 // ── Errors ─────────────────────────────────────────────────────────
 export {
@@ -73,6 +90,7 @@ export type {
   // Sheet
   Sheet,
   ColumnDef,
+  RowDef,
   MergeRange,
   DataValidation,
   ConditionalRule,

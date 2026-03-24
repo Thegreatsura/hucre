@@ -1,5 +1,7 @@
 export { readXlsx } from "./xlsx/reader";
 export { writeXlsx } from "./xlsx/writer";
+export { openXlsx, saveXlsx } from "./xlsx/roundtrip";
+export type { RoundtripWorkbook } from "./xlsx/roundtrip";
 export { hashSheetPassword } from "./xlsx/password";
 export { streamXlsxRows } from "./xlsx/stream-reader";
 export type { StreamRow } from "./xlsx/stream-reader";

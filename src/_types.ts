@@ -473,6 +473,17 @@ export interface TableColumn {
   totalLabel?: string;
 }
 
+// ── Row Definition ────────────────────────────────────────────────
+
+export interface RowDef {
+  /** Row height in points */
+  height?: number;
+  /** Hide row */
+  hidden?: boolean;
+  /** Outline level (grouping) */
+  outlineLevel?: number;
+}
+
 // ── Sheet ──────────────────────────────────────────────────────────
 
 export interface Sheet {
@@ -481,6 +492,8 @@ export interface Sheet {
   /** Detailed cell data (keyed by "row,col" e.g. "0,2") */
   cells?: Map<string, Cell>;
   columns?: ColumnDef[];
+  /** Row-level properties (keyed by 0-based row index) */
+  rowDefs?: Map<number, RowDef>;
   merges?: MergeRange[];
   dataValidations?: DataValidation[];
   conditionalRules?: ConditionalRule[];

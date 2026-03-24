@@ -11,5 +11,6 @@
     "noImplicitOverride": true,
     "noEmit": true
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["src/cli.ts"]
 }
