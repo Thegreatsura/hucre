@@ -411,6 +411,40 @@ export interface SheetView {
   tabColor?: Color;
 }
 
+// ── Table (ListObject) ────────────────────────────────────────────
+
+export interface TableDefinition {
+  /** Table name (must be unique in workbook, used in structured references) */
+  name: string;
+  /** Display name */
+  displayName?: string;
+  /** Cell range (e.g. "A1:D10") — if not provided, auto-calculated from data */
+  range?: string;
+  /** Column definitions */
+  columns: TableColumn[];
+  /** Table style name (e.g. "TableStyleMedium2") */
+  style?: string;
+  /** Show banded rows. Default: true */
+  showRowStripes?: boolean;
+  /** Show banded columns. Default: false */
+  showColumnStripes?: boolean;
+  /** Show auto-filter. Default: true */
+  showAutoFilter?: boolean;
+  /** Show total row. Default: false */
+  showTotalRow?: boolean;
+}
+
+export interface TableColumn {
+  /** Column header name */
+  name: string;
+  /** Total row function (sum, count, average, min, max, countNums, stdDev, var, custom) */
+  totalFunction?: string;
+  /** Total row formula (for custom) */
+  totalFormula?: string;
+  /** Total row label (text in total cell) */
+  totalLabel?: string;
+}
+
 // ── Sheet ──────────────────────────────────────────────────────────
 
 export interface Sheet {
@@ -432,6 +466,8 @@ export interface Sheet {
   hidden?: boolean;
   /** Very hidden (only unhideable via VBA) */
   veryHidden?: boolean;
+  /** Excel Tables (ListObject) defined on this sheet */
+  tables?: TableDefinition[];
 }
 
 // ── Workbook Properties ────────────────────────────────────────────
@@ -488,6 +524,7 @@ export interface ReadOptions {
 export interface WriteOptions {
   sheets: WriteSheet[];
   properties?: WorkbookProperties;
+  namedRanges?: NamedRange[];
   defaultFont?: FontStyle;
   dateSystem?: "1900" | "1904";
 }
@@ -513,6 +550,8 @@ export interface WriteSheet {
   view?: SheetView;
   hidden?: boolean;
   veryHidden?: boolean;
+  /** Excel Tables (ListObject) to define on this sheet */
+  tables?: TableDefinition[];
 }
 
 // ── CSV Options ────────────────────────────────────────────────────

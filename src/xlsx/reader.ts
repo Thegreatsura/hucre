@@ -1,7 +1,15 @@
 // ── XLSX Reader ──────────────────────────────────────────────────────
 // Reads Office Open XML (.xlsx) spreadsheet files.
 
-import type { Workbook, ReadOptions, ReadInput, SheetImage } from "../_types";
+import type {
+  Workbook,
+  ReadOptions,
+  ReadInput,
+  SheetImage,
+  NamedRange,
+  TableDefinition,
+  TableColumn,
+} from "../_types";
 import { ParseError, ZipError } from "../errors";
 import { ZipReader } from "../zip/reader";
 import { parseXml } from "../xml/parser";
@@ -28,6 +36,7 @@ const REL_STYLES = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 const REL_DRAWING = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
 const REL_IMAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+const REL_TABLE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -131,7 +140,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
     throw new ParseError(`Invalid XLSX: missing workbook at ${workbookPath}`);
   }
   const workbookXml = decodeUtf8(await zip.extract(workbookPath));
-  const { sheets: sheetInfos, dateSystem } = parseWorkbookXml(workbookXml, options);
+  const { sheets: sheetInfos, dateSystem, namedRanges } = parseWorkbookXml(workbookXml, options);
 
   // 6. Parse shared strings if present
   let sharedStrings: SharedString[] = [];
@@ -243,6 +252,27 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
       }
     }
 
+    // Extract tables if present
+    if (worksheetRels) {
+      const tableRels = worksheetRels.filter((r) => r.type === REL_TABLE);
+      if (tableRels.length > 0) {
+        const tables: TableDefinition[] = [];
+        for (const tableRel of tableRels) {
+          const tablePath = resolvePath(wsDir, tableRel.target);
+          if (zip.has(tablePath)) {
+            const tableXml = decodeUtf8(await zip.extract(tablePath));
+            const tableDef = parseTableXml(tableXml);
+            if (tableDef) {
+              tables.push(tableDef);
+            }
+          }
+        }
+        if (tables.length > 0) {
+          sheet.tables = tables;
+        }
+      }
+    }
+
     sheets.push(sheet);
   }
 
@@ -251,6 +281,10 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
     sheets,
     dateSystem,
   };
+
+  if (namedRanges.length > 0) {
+    workbook.namedRanges = namedRanges;
+  }
 
   return workbook;
 }
@@ -448,10 +482,11 @@ interface SheetInfo {
 function parseWorkbookXml(
   xml: string,
   options?: ReadOptions,
-): { sheets: SheetInfo[]; dateSystem: "1900" | "1904" } {
+): { sheets: SheetInfo[]; dateSystem: "1900" | "1904"; namedRanges: NamedRange[] } {
   const doc = parseXml(xml);
 
   const sheets: SheetInfo[] = [];
+  const namedRanges: NamedRange[] = [];
   let dateSystem: "1900" | "1904" = "1900";
 
   // Check date system override from options
@@ -461,6 +496,7 @@ function parseWorkbookXml(
     dateSystem = "1900";
   }
 
+  // First pass: collect sheets (needed for resolving localSheetId)
   for (const child of doc.children) {
     if (typeof child === "string") continue;
     const local = child.local || child.tag;
@@ -501,7 +537,44 @@ function parseWorkbookXml(
     }
   }
 
-  return { sheets, dateSystem };
+  // Second pass: collect defined names (named ranges)
+  for (const child of doc.children) {
+    if (typeof child === "string") continue;
+    const local = child.local || child.tag;
+
+    if (local === "definedNames") {
+      for (const dnChild of child.children) {
+        if (typeof dnChild === "string") continue;
+        const dnLocal = dnChild.local || dnChild.tag;
+        if (dnLocal === "definedName") {
+          const name = dnChild.attrs["name"] ?? "";
+          const rangeText = dnChild.children.filter((c: unknown) => typeof c === "string").join("");
+
+          if (name && rangeText) {
+            const nr: NamedRange = { name, range: rangeText };
+
+            // Resolve localSheetId to sheet name
+            const localSheetId = dnChild.attrs["localSheetId"];
+            if (localSheetId !== undefined) {
+              const idx = Number(localSheetId);
+              if (idx >= 0 && idx < sheets.length) {
+                nr.scope = sheets[idx].name;
+              }
+            }
+
+            // Comment attribute
+            if (dnChild.attrs["comment"]) {
+              nr.comment = dnChild.attrs["comment"];
+            }
+
+            namedRanges.push(nr);
+          }
+        }
+      }
+    }
+  }
+
+  return { sheets, dateSystem, namedRanges };
 }
 
 /** Find an r:id attribute regardless of namespace prefix */
@@ -532,4 +605,102 @@ function filterSheets(allSheets: SheetInfo[], filter?: Array<number | string>): 
   }
 
   return result;
+}
+
+// ── Table XML Parsing ────────────────────────────────────────────────
+
+/**
+ * Parse a table XML file (xl/tables/tableN.xml) into a TableDefinition.
+ */
+function parseTableXml(xml: string): TableDefinition | null {
+  const doc = parseXml(xml);
+
+  // Root element should be <table>
+  const name = doc.attrs["name"] ?? "";
+  const displayName = doc.attrs["displayName"] ?? name;
+  const ref = doc.attrs["ref"] ?? "";
+
+  if (!name) return null;
+
+  // Determine showTotalRow from totalsRowCount or totalsRowShown
+  const totalsRowCount = doc.attrs["totalsRowCount"];
+  const showTotalRow = totalsRowCount !== undefined && totalsRowCount !== "0";
+
+  const columns: TableColumn[] = [];
+  let style: string | undefined;
+  let showRowStripes: boolean | undefined;
+  let showColumnStripes: boolean | undefined;
+  let showAutoFilter = true;
+
+  for (const child of doc.children) {
+    if (typeof child === "string") continue;
+    const local = child.local || child.tag;
+
+    if (local === "autoFilter") {
+      showAutoFilter = true;
+    } else if (local === "tableColumns") {
+      for (const colChild of child.children) {
+        if (typeof colChild === "string") continue;
+        const colLocal = colChild.local || colChild.tag;
+        if (colLocal === "tableColumn") {
+          const col: TableColumn = {
+            name: colChild.attrs["name"] ?? "",
+          };
+          if (colChild.attrs["totalsRowFunction"]) {
+            col.totalFunction = colChild.attrs["totalsRowFunction"];
+          }
+          if (colChild.attrs["totalsRowLabel"]) {
+            col.totalLabel = colChild.attrs["totalsRowLabel"];
+          }
+          // Parse totalsRowFormula child element
+          for (const formulaChild of colChild.children) {
+            if (typeof formulaChild === "string") continue;
+            const formulaLocal = formulaChild.local || formulaChild.tag;
+            if (formulaLocal === "totalsRowFormula") {
+              const formulaText = formulaChild.children
+                .filter((c: unknown) => typeof c === "string")
+                .join("");
+              if (formulaText) {
+                col.totalFormula = formulaText;
+              }
+            }
+          }
+          columns.push(col);
+        }
+      }
+    } else if (local === "tableStyleInfo") {
+      style = child.attrs["name"];
+      showRowStripes = child.attrs["showRowStripes"] === "1";
+      showColumnStripes = child.attrs["showColumnStripes"] === "1";
+    }
+  }
+
+  const tableDef: TableDefinition = {
+    name,
+    columns,
+  };
+
+  if (displayName && displayName !== name) {
+    tableDef.displayName = displayName;
+  }
+  if (ref) {
+    tableDef.range = ref;
+  }
+  if (style) {
+    tableDef.style = style;
+  }
+  if (showRowStripes !== undefined) {
+    tableDef.showRowStripes = showRowStripes;
+  }
+  if (showColumnStripes !== undefined) {
+    tableDef.showColumnStripes = showColumnStripes;
+  }
+  if (showAutoFilter !== undefined) {
+    tableDef.showAutoFilter = showAutoFilter;
+  }
+  if (showTotalRow) {
+    tableDef.showTotalRow = true;
+  }
+
+  return tableDef;
 }

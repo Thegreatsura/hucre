@@ -1,7 +1,17 @@
 // ── Worksheet XML Writer ─────────────────────────────────────────────
 // Generates xl/worksheets/sheetN.xml for an XLSX package.
 
-import type { WriteSheet, CellValue, CellStyle, DataValidation, SheetProtection } from "../_types";
+import type {
+  WriteSheet,
+  CellValue,
+  CellStyle,
+  DataValidation,
+  SheetProtection,
+  PageSetup,
+  PageMargins,
+  HeaderFooter,
+  PaperSize,
+} from "../_types";
 import type { StylesCollector } from "./styles-writer";
 import { dateToSerial } from "../_date";
 import { xmlDocument, xmlElement, xmlSelfClose, xmlEscape } from "../xml/writer";
@@ -22,8 +32,12 @@ export interface WorksheetResult {
   drawingRId: string | null;
   /** The rId used for legacy drawing (VML) reference (if sheet has comments) */
   legacyDrawingRId: string | null;
+  /** The rId used for the comments file reference (if sheet has comments) */
+  commentsRId: string | null;
   /** Whether this sheet has comments */
   hasComments: boolean;
+  /** Table parts info: rId and global table index for each table */
+  tables: Array<{ rId: string; globalTableIndex: number }>;
 }
 
 const NS_SPREADSHEET = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -131,6 +145,7 @@ export function writeWorksheetXml(
   styles: StylesCollector,
   sharedStrings: SharedStringsCollector,
   dateSystem?: "1900" | "1904",
+  globalTableStartIndex?: number,
 ): WorksheetResult {
   const is1904 = dateSystem === "1904";
 
@@ -306,6 +321,19 @@ export function writeWorksheetXml(
     parts.push(hyperlinksXml);
   }
 
+  // ── Page Margins ──
+  parts.push(serializePageMargins(sheet.pageSetup?.margins));
+
+  // ── Page Setup ──
+  if (sheet.pageSetup) {
+    parts.push(serializePageSetup(sheet.pageSetup));
+  }
+
+  // ── Header/Footer ──
+  if (sheet.headerFooter) {
+    parts.push(serializeHeaderFooter(sheet.headerFooter));
+  }
+
   // ── Drawing (images) ──
   let drawingRId: string | null = null;
   let nextRId = hyperlinkRelationships.length + 1;
@@ -318,6 +346,7 @@ export function writeWorksheetXml(
 
   // ── Legacy Drawing (VML — for comments) ──
   let legacyDrawingRId: string | null = null;
+  let commentsRId: string | null = null;
   let hasComments = false;
   if (sheet.cells) {
     for (const [, cell] of sheet.cells) {
@@ -329,7 +358,24 @@ export function writeWorksheetXml(
   }
   if (hasComments) {
     legacyDrawingRId = `rId${nextRId}`;
+    nextRId++;
+    commentsRId = `rId${nextRId}`;
+    nextRId++;
     parts.push(xmlSelfClose("legacyDrawing", { "r:id": legacyDrawingRId }));
+  }
+
+  // ── Table Parts ──
+  const tableEntries: Array<{ rId: string; globalTableIndex: number }> = [];
+  if (sheet.tables && sheet.tables.length > 0 && globalTableStartIndex !== undefined) {
+    const tablePartElements: string[] = [];
+    for (let t = 0; t < sheet.tables.length; t++) {
+      const tableRId = `rId${nextRId}`;
+      nextRId++;
+      const globalIdx = globalTableStartIndex + t;
+      tableEntries.push({ rId: tableRId, globalTableIndex: globalIdx });
+      tablePartElements.push(xmlSelfClose("tablePart", { "r:id": tableRId }));
+    }
+    parts.push(xmlElement("tableParts", { count: sheet.tables.length }, tablePartElements));
   }
 
   return {
@@ -337,7 +383,9 @@ export function writeWorksheetXml(
     hyperlinkRelationships,
     drawingRId,
     legacyDrawingRId,
+    commentsRId,
     hasComments,
+    tables: tableEntries,
   };
 }
 
@@ -702,4 +750,134 @@ export function collectHyperlinks(sheet: WriteSheet): {
     xml: xmlElement("hyperlinks", undefined, hyperlinkElements),
     relationships,
   };
+}
+
+// ── Paper Size Map ──────────────────────────────────────────────────
+
+const PAPER_SIZE_MAP: Record<PaperSize, number> = {
+  letter: 1,
+  legal: 5,
+  a3: 8,
+  a4: 9,
+  a5: 11,
+  b4: 12,
+  b5: 13,
+  executive: 7,
+  tabloid: 3,
+};
+
+/** Reverse map: XLSX paper size number → PaperSize string */
+export const PAPER_SIZE_REVERSE: Record<number, PaperSize> = {};
+for (const [name, num] of Object.entries(PAPER_SIZE_MAP)) {
+  PAPER_SIZE_REVERSE[num] = name as PaperSize;
+}
+
+// ── Page Margins Serialization ──────────────────────────────────────
+
+/** Default Excel margins (in inches) */
+const DEFAULT_MARGINS: Required<PageMargins> = {
+  left: 0.7,
+  right: 0.7,
+  top: 0.75,
+  bottom: 0.75,
+  header: 0.3,
+  footer: 0.3,
+};
+
+/** Serialize page margins. Always emits (Excel expects it). */
+function serializePageMargins(margins?: PageMargins): string {
+  const m = margins ?? {};
+  return xmlSelfClose("pageMargins", {
+    left: m.left ?? DEFAULT_MARGINS.left,
+    right: m.right ?? DEFAULT_MARGINS.right,
+    top: m.top ?? DEFAULT_MARGINS.top,
+    bottom: m.bottom ?? DEFAULT_MARGINS.bottom,
+    header: m.header ?? DEFAULT_MARGINS.header,
+    footer: m.footer ?? DEFAULT_MARGINS.footer,
+  });
+}
+
+// ── Page Setup Serialization ─────────────────────────────────────────
+
+function serializePageSetup(ps: PageSetup): string {
+  const attrs: Record<string, string | number> = {};
+
+  if (ps.paperSize) {
+    const num = PAPER_SIZE_MAP[ps.paperSize];
+    if (num !== undefined) {
+      attrs["paperSize"] = num;
+    }
+  }
+
+  if (ps.orientation) {
+    attrs["orientation"] = ps.orientation;
+  }
+
+  if (ps.scale !== undefined) {
+    attrs["scale"] = ps.scale;
+  }
+
+  if (ps.fitToPage) {
+    if (ps.fitToWidth !== undefined) {
+      attrs["fitToWidth"] = ps.fitToWidth;
+    }
+    if (ps.fitToHeight !== undefined) {
+      attrs["fitToHeight"] = ps.fitToHeight;
+    }
+  }
+
+  if (ps.horizontalCentered) {
+    attrs["horizontalCentered"] = 1;
+  }
+
+  if (ps.verticalCentered) {
+    attrs["verticalCentered"] = 1;
+  }
+
+  // Only emit if there are attributes beyond default
+  if (Object.keys(attrs).length === 0) {
+    return "";
+  }
+
+  return xmlSelfClose("pageSetup", attrs);
+}
+
+// ── Header/Footer Serialization ──────────────────────────────────────
+
+function serializeHeaderFooter(hf: HeaderFooter): string {
+  const attrs: Record<string, string | number> = {};
+
+  if (hf.differentOddEven) {
+    attrs["differentOddEven"] = 1;
+  }
+  if (hf.differentFirst) {
+    attrs["differentFirst"] = 1;
+  }
+
+  const children: string[] = [];
+
+  if (hf.oddHeader) {
+    children.push(xmlElement("oddHeader", undefined, xmlEscape(hf.oddHeader)));
+  }
+  if (hf.oddFooter) {
+    children.push(xmlElement("oddFooter", undefined, xmlEscape(hf.oddFooter)));
+  }
+  if (hf.evenHeader) {
+    children.push(xmlElement("evenHeader", undefined, xmlEscape(hf.evenHeader)));
+  }
+  if (hf.evenFooter) {
+    children.push(xmlElement("evenFooter", undefined, xmlEscape(hf.evenFooter)));
+  }
+  if (hf.firstHeader) {
+    children.push(xmlElement("firstHeader", undefined, xmlEscape(hf.firstHeader)));
+  }
+  if (hf.firstFooter) {
+    children.push(xmlElement("firstFooter", undefined, xmlEscape(hf.firstFooter)));
+  }
+
+  if (children.length === 0) {
+    return "";
+  }
+
+  return xmlElement("headerFooter", Object.keys(attrs).length > 0 ? attrs : undefined, children);
 }

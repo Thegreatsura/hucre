@@ -1,7 +1,7 @@
 // ── XLSX Writer ──────────────────────────────────────────────────────
 // Generates valid Office Open XML spreadsheet files (XLSX).
 
-import type { WriteOptions, WriteOutput } from "../_types";
+import type { WriteOptions, WriteOutput, NamedRange } from "../_types";
 import { ZipWriter } from "../zip/writer";
 import { writeContentTypes } from "./content-types-writer";
 import type { ContentTypesOptions } from "./content-types-writer";
@@ -13,6 +13,8 @@ import { writeDrawing } from "./drawing-writer";
 import type { DrawingResult } from "./drawing-writer";
 import { writeComments } from "./comments-writer";
 import type { CommentsResult } from "./comments-writer";
+import { writeTable } from "./table-writer";
+import { colToLetter } from "./worksheet-writer";
 import { xmlDocument, xmlSelfClose } from "../xml/writer";
 
 const encoder = /* @__PURE__ */ new TextEncoder();
@@ -24,22 +26,42 @@ const REL_DRAWING = "http://schemas.openxmlformats.org/officeDocument/2006/relat
 const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 const REL_VML_DRAWING =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing";
+const REL_TABLE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
 
 /**
  * Write a Workbook to XLSX format.
  * Returns a Uint8Array containing the ZIP archive.
  */
 export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
-  const { sheets, defaultFont, dateSystem } = options;
+  const { sheets, defaultFont, dateSystem, namedRanges } = options;
 
   // Create shared collectors
   const styles = createStylesCollector(defaultFont);
   const sharedStrings = createSharedStrings();
 
+  // Pre-compute global table start indices per sheet
+  let globalTableCounter = 1;
+  const sheetTableStartIndices: Array<number | undefined> = [];
+  for (const sheet of sheets) {
+    if (sheet.tables && sheet.tables.length > 0) {
+      sheetTableStartIndices.push(globalTableCounter);
+      globalTableCounter += sheet.tables.length;
+    } else {
+      sheetTableStartIndices.push(undefined);
+    }
+  }
+
   // Generate worksheet XMLs (also populates styles and shared strings)
   const worksheetResults: WorksheetResult[] = [];
-  for (const sheet of sheets) {
-    const result = writeWorksheetXml(sheet, styles, sharedStrings, dateSystem);
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i];
+    const result = writeWorksheetXml(
+      sheet,
+      styles,
+      sharedStrings,
+      dateSystem,
+      sheetTableStartIndices[i],
+    );
     worksheetResults.push(result);
   }
 
@@ -88,6 +110,14 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
     }
   }
 
+  // Collect all table indices for content types
+  const allTableIndices: number[] = [];
+  for (const result of worksheetResults) {
+    for (const t of result.tables) {
+      allTableIndices.push(t.globalTableIndex);
+    }
+  }
+
   // Build ZIP archive
   const zip = new ZipWriter();
 
@@ -98,14 +128,21 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
     drawingIndices: drawingIndices.length > 0 ? drawingIndices : undefined,
     imageExtensions: imageExtensions.size > 0 ? imageExtensions : undefined,
     commentIndices: commentIndices.length > 0 ? commentIndices : undefined,
+    tableIndices: allTableIndices.length > 0 ? allTableIndices : undefined,
   };
   zip.add("[Content_Types].xml", encoder.encode(writeContentTypes(ctOpts)));
 
   // _rels/.rels
   zip.add("_rels/.rels", encoder.encode(writeRootRels()));
 
-  // xl/workbook.xml
-  zip.add("xl/workbook.xml", encoder.encode(writeWorkbookXml(sheets)));
+  // xl/workbook.xml — merge user named ranges with auto-generated print area/titles
+  const allNamedRanges = buildNamedRanges(sheets, namedRanges);
+  zip.add(
+    "xl/workbook.xml",
+    encoder.encode(
+      writeWorkbookXml(sheets, allNamedRanges.length > 0 ? allNamedRanges : undefined),
+    ),
+  );
 
   // xl/_rels/workbook.xml.rels
   zip.add(
@@ -129,12 +166,13 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
 
     zip.add(`xl/worksheets/sheet${i + 1}.xml`, encoder.encode(result.xml));
 
-    // Generate worksheet .rels if there are hyperlinks, a drawing, or comments
+    // Generate worksheet .rels if there are hyperlinks, a drawing, comments, or tables
     const hasHyperlinks = result.hyperlinkRelationships.length > 0;
     const hasDrawing = drawing !== null && result.drawingRId !== null;
     const hasComments = comments !== null && result.legacyDrawingRId !== null;
+    const hasTables = result.tables.length > 0;
 
-    if (hasHyperlinks || hasDrawing || hasComments) {
+    if (hasHyperlinks || hasDrawing || hasComments || hasTables) {
       const relElements: string[] = [];
 
       // Hyperlink relationships
@@ -161,7 +199,7 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
       }
 
       // Comments relationships (VML drawing + comments file)
-      if (hasComments && result.legacyDrawingRId) {
+      if (hasComments && result.legacyDrawingRId && result.commentsRId) {
         // Legacy drawing (VML) relationship
         relElements.push(
           xmlSelfClose("Relationship", {
@@ -171,14 +209,23 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
           }),
         );
 
-        // Comments file relationship — use the next rId after legacyDrawingRId
-        const legacyRIdNum = parseInt(result.legacyDrawingRId.replace("rId", ""), 10);
-        const commentsRId = `rId${legacyRIdNum + 1}`;
+        // Comments file relationship
         relElements.push(
           xmlSelfClose("Relationship", {
-            Id: commentsRId,
+            Id: result.commentsRId,
             Type: REL_COMMENTS,
             Target: `../comments${i + 1}.xml`,
+          }),
+        );
+      }
+
+      // Table relationships
+      for (const tableEntry of result.tables) {
+        relElements.push(
+          xmlSelfClose("Relationship", {
+            Id: tableEntry.rId,
+            Type: REL_TABLE,
+            Target: `../tables/table${tableEntry.globalTableIndex}.xml`,
           }),
         );
       }
@@ -203,7 +250,104 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
       zip.add(`xl/comments${i + 1}.xml`, encoder.encode(comments.commentsXml));
       zip.add(`xl/drawings/vmlDrawing${i + 1}.vml`, encoder.encode(comments.vmlXml));
     }
+
+    // Add table XML files
+    const sheet = sheets[i];
+    if (sheet.tables && sheet.tables.length > 0) {
+      for (let t = 0; t < sheet.tables.length; t++) {
+        const tableDef = sheet.tables[t];
+        const tableEntry = result.tables[t];
+        const globalIdx = tableEntry.globalTableIndex;
+
+        // Auto-calculate range if not provided
+        let tableRange = tableDef.range;
+        if (!tableRange) {
+          tableRange = computeTableRange(tableDef, sheet);
+        }
+
+        // Write table XML with resolved range
+        const tableDefWithRange = { ...tableDef, range: tableRange };
+        const tableResult = writeTable(tableDefWithRange, globalIdx, globalIdx);
+        zip.add(`xl/tables/table${globalIdx}.xml`, encoder.encode(tableResult.tableXml));
+      }
+    }
   }
 
   return zip.build();
+}
+
+// ── Named Range Builder ────────────────────────────────────────────────
+
+/**
+ * Build the full list of named ranges, merging user-defined ranges with
+ * auto-generated _xlnm.Print_Area and _xlnm.Print_Titles from sheet pageSetup.
+ */
+function buildNamedRanges(sheets: WriteOptions["sheets"], userRanges?: NamedRange[]): NamedRange[] {
+  const result: NamedRange[] = userRanges ? [...userRanges] : [];
+
+  for (const sheet of sheets) {
+    const ps = sheet.pageSetup;
+    if (!ps) continue;
+
+    // Print area → _xlnm.Print_Area
+    if (ps.printArea) {
+      result.push({
+        name: "_xlnm.Print_Area",
+        range: `${sheet.name}!${ps.printArea}`,
+        scope: sheet.name,
+      });
+    }
+
+    // Print titles (repeat rows and/or columns)
+    const titleParts: string[] = [];
+    if (ps.printTitlesRow) {
+      titleParts.push(`${sheet.name}!${ps.printTitlesRow}`);
+    }
+    if (ps.printTitlesColumn) {
+      titleParts.push(`${sheet.name}!${ps.printTitlesColumn}`);
+    }
+    if (titleParts.length > 0) {
+      result.push({
+        name: "_xlnm.Print_Titles",
+        range: titleParts.join(","),
+        scope: sheet.name,
+      });
+    }
+  }
+
+  return result;
+}
+
+// ── Table Range Computation ──────────────────────────────────────────
+
+/**
+ * Auto-calculate table range from sheet data and table column count.
+ * Assumes header row is row 1 and data fills remaining rows.
+ */
+function computeTableRange(
+  table: import("../_types").TableDefinition,
+  sheet: import("../_types").WriteSheet,
+): string {
+  const colCount = table.columns.length;
+  let rowCount = 0;
+
+  if (sheet.rows) {
+    rowCount = sheet.rows.length;
+  } else if (sheet.data) {
+    // Object data: data rows + 1 header row (if columns have headers)
+    const hasHeaders = sheet.columns?.some((c) => c.header);
+    rowCount = sheet.data.length + (hasHeaders ? 1 : 0);
+  }
+
+  // Add total row if requested
+  if (table.showTotalRow) {
+    rowCount += 1;
+  }
+
+  // Minimum: 1 header row + 0 data rows = 1 row
+  if (rowCount < 1) rowCount = 1;
+
+  const startCol = colToLetter(0);
+  const endCol = colToLetter(colCount - 1);
+  return `${startCol}1:${endCol}${rowCount}`;
 }

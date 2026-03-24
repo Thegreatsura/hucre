@@ -15,6 +15,7 @@ const CT_SHARED_STRINGS =
 const CT_DRAWING = "application/vnd.openxmlformats-officedocument.drawing+xml";
 const CT_COMMENTS = "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
 const CT_VML = "application/vnd.openxmlformats-officedocument.vmlDrawing";
+const CT_TABLE = "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml";
 
 /** Image extension → content type mapping */
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
@@ -32,6 +33,8 @@ export interface ContentTypesOptions {
   imageExtensions?: Set<string>;
   /** 1-based indices of comments (e.g. [1, 2] means comments1.xml and comments2.xml exist) */
   commentIndices?: number[];
+  /** 1-based indices of tables (e.g. [1, 2, 3] means table1.xml, table2.xml, table3.xml exist) */
+  tableIndices?: number[];
 }
 
 /** Generate [Content_Types].xml for XLSX */
@@ -126,6 +129,18 @@ export function writeContentTypes(
         xmlSelfClose("Override", {
           PartName: `/xl/comments${idx}.xml`,
           ContentType: CT_COMMENTS,
+        }),
+      );
+    }
+  }
+
+  // Override for each table
+  if (opts.tableIndices) {
+    for (const idx of opts.tableIndices) {
+      children.push(
+        xmlSelfClose("Override", {
+          PartName: `/xl/tables/table${idx}.xml`,
+          ContentType: CT_TABLE,
         }),
       );
     }

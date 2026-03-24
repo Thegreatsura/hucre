@@ -13,6 +13,10 @@ import type {
   ValidationType,
   ValidationOperator,
   SheetProtection,
+  PageSetup,
+  PageMargins,
+  HeaderFooter,
+  PaperSize,
 } from "../_types";
 import type { SharedString } from "./shared-strings";
 import type { ParsedStyles } from "./styles";
@@ -111,6 +115,21 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
 
   // Sheet protection parsed from <sheetProtection> element
   let sheetProtection: SheetProtection | undefined;
+
+  // Page setup / print settings
+  let pageSetup: PageSetup | undefined;
+  let pageMargins: PageMargins | undefined;
+  let headerFooter: HeaderFooter | undefined;
+
+  // Header/footer SAX state
+  let inHeaderFooter = false;
+  let inOddHeader = false;
+  let inOddFooter = false;
+  let inEvenHeader = false;
+  let inEvenFooter = false;
+  let inFirstHeader = false;
+  let inFirstFooter = false;
+  let hfText = "";
 
   // SAX parsing state
   let inSheetData = false;
@@ -246,6 +265,58 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
         case "formula2":
           if (inDataValidation) inDvFormula2 = true;
           break;
+        case "pageMargins":
+          pageMargins = parsePageMarginsAttrs(attrs);
+          break;
+        case "pageSetup":
+          pageSetup = parsePageSetupAttrs(attrs);
+          break;
+        case "headerFooter":
+          inHeaderFooter = true;
+          headerFooter = {};
+          if (attrs["differentOddEven"] === "1" || attrs["differentOddEven"] === "true") {
+            headerFooter.differentOddEven = true;
+          }
+          if (attrs["differentFirst"] === "1" || attrs["differentFirst"] === "true") {
+            headerFooter.differentFirst = true;
+          }
+          break;
+        case "oddHeader":
+          if (inHeaderFooter) {
+            inOddHeader = true;
+            hfText = "";
+          }
+          break;
+        case "oddFooter":
+          if (inHeaderFooter) {
+            inOddFooter = true;
+            hfText = "";
+          }
+          break;
+        case "evenHeader":
+          if (inHeaderFooter) {
+            inEvenHeader = true;
+            hfText = "";
+          }
+          break;
+        case "evenFooter":
+          if (inHeaderFooter) {
+            inEvenFooter = true;
+            hfText = "";
+          }
+          break;
+        case "firstHeader":
+          if (inHeaderFooter) {
+            inFirstHeader = true;
+            hfText = "";
+          }
+          break;
+        case "firstFooter":
+          if (inHeaderFooter) {
+            inFirstFooter = true;
+            hfText = "";
+          }
+          break;
         default:
           // Handle font property tags inside rPr
           if (inInlineRPr && currentRunFont) {
@@ -269,6 +340,15 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
         dvFormula1Text += text;
       } else if (inDvFormula2) {
         dvFormula2Text += text;
+      } else if (
+        inOddHeader ||
+        inOddFooter ||
+        inEvenHeader ||
+        inEvenFooter ||
+        inFirstHeader ||
+        inFirstFooter
+      ) {
+        hfText += text;
       }
     },
 
@@ -360,6 +440,45 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
         case "formula2":
           inDvFormula2 = false;
           break;
+        case "headerFooter":
+          inHeaderFooter = false;
+          break;
+        case "oddHeader":
+          if (inOddHeader && headerFooter) {
+            headerFooter.oddHeader = hfText;
+            inOddHeader = false;
+          }
+          break;
+        case "oddFooter":
+          if (inOddFooter && headerFooter) {
+            headerFooter.oddFooter = hfText;
+            inOddFooter = false;
+          }
+          break;
+        case "evenHeader":
+          if (inEvenHeader && headerFooter) {
+            headerFooter.evenHeader = hfText;
+            inEvenHeader = false;
+          }
+          break;
+        case "evenFooter":
+          if (inEvenFooter && headerFooter) {
+            headerFooter.evenFooter = hfText;
+            inEvenFooter = false;
+          }
+          break;
+        case "firstHeader":
+          if (inFirstHeader && headerFooter) {
+            headerFooter.firstHeader = hfText;
+            inFirstHeader = false;
+          }
+          break;
+        case "firstFooter":
+          if (inFirstFooter && headerFooter) {
+            headerFooter.firstFooter = hfText;
+            inFirstFooter = false;
+          }
+          break;
         default:
           if (inInlineRPr) {
             _fontPropTag = "";
@@ -442,6 +561,20 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
   }
   if (sheetProtection) {
     sheet.protection = sheetProtection;
+  }
+
+  // Attach page setup (merge margins into pageSetup if present)
+  if (pageSetup || pageMargins) {
+    const ps: PageSetup = pageSetup ?? {};
+    if (pageMargins) {
+      ps.margins = pageMargins;
+    }
+    sheet.pageSetup = ps;
+  }
+
+  // Attach header/footer
+  if (headerFooter && Object.keys(headerFooter).length > 0) {
+    sheet.headerFooter = headerFooter;
   }
 
   return sheet;
@@ -808,4 +941,66 @@ function applyFontProp(font: FontStyle, tag: string, attrs: Record<string, strin
       }
       break;
   }
+}
+
+// ── Page Margins Parser ────────────────────────────────────────────────
+
+function parsePageMarginsAttrs(attrs: Record<string, string>): PageMargins {
+  const m: PageMargins = {};
+  if (attrs["left"]) m.left = Number(attrs["left"]);
+  if (attrs["right"]) m.right = Number(attrs["right"]);
+  if (attrs["top"]) m.top = Number(attrs["top"]);
+  if (attrs["bottom"]) m.bottom = Number(attrs["bottom"]);
+  if (attrs["header"]) m.header = Number(attrs["header"]);
+  if (attrs["footer"]) m.footer = Number(attrs["footer"]);
+  return m;
+}
+
+// ── Page Setup Parser ──────────────────────────────────────────────────
+
+/** Reverse map: XLSX paper size number → PaperSize string */
+const PAPER_SIZE_REVERSE: Record<number, PaperSize> = {
+  1: "letter",
+  3: "tabloid",
+  5: "legal",
+  7: "executive",
+  8: "a3",
+  9: "a4",
+  11: "a5",
+  12: "b4",
+  13: "b5",
+};
+
+function parsePageSetupAttrs(attrs: Record<string, string>): PageSetup {
+  const ps: PageSetup = {};
+
+  if (attrs["paperSize"]) {
+    const num = Number(attrs["paperSize"]);
+    const name = PAPER_SIZE_REVERSE[num];
+    if (name) ps.paperSize = name;
+  }
+
+  if (attrs["orientation"] === "landscape" || attrs["orientation"] === "portrait") {
+    ps.orientation = attrs["orientation"];
+  }
+
+  if (attrs["scale"]) {
+    ps.scale = Number(attrs["scale"]);
+  }
+
+  if (attrs["fitToWidth"] !== undefined || attrs["fitToHeight"] !== undefined) {
+    ps.fitToPage = true;
+    if (attrs["fitToWidth"]) ps.fitToWidth = Number(attrs["fitToWidth"]);
+    if (attrs["fitToHeight"]) ps.fitToHeight = Number(attrs["fitToHeight"]);
+  }
+
+  if (attrs["horizontalCentered"] === "1" || attrs["horizontalCentered"] === "true") {
+    ps.horizontalCentered = true;
+  }
+
+  if (attrs["verticalCentered"] === "1" || attrs["verticalCentered"] === "true") {
+    ps.verticalCentered = true;
+  }
+
+  return ps;
 }

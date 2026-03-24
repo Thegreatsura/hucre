@@ -1,8 +1,8 @@
 // ── Workbook XML Writer ──────────────────────────────────────────────
 // Generates xl/workbook.xml, xl/_rels/workbook.xml.rels, and _rels/.rels
 
-import type { WriteSheet } from "../_types";
-import { xmlDocument, xmlElement, xmlSelfClose } from "../xml/writer";
+import type { WriteSheet, NamedRange } from "../_types";
+import { xmlDocument, xmlElement, xmlSelfClose, xmlEscape } from "../xml/writer";
 
 const NS_SPREADSHEET = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -18,7 +18,7 @@ const REL_WORKBOOK =
 const NS_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
 /** Generate xl/workbook.xml */
-export function writeWorkbookXml(sheets: WriteSheet[]): string {
+export function writeWorkbookXml(sheets: WriteSheet[], namedRanges?: NamedRange[]): string {
   const sheetElements: string[] = [];
 
   for (let i = 0; i < sheets.length; i++) {
@@ -36,9 +36,43 @@ export function writeWorkbookXml(sheets: WriteSheet[]): string {
     sheetElements.push(xmlSelfClose("sheet", attrs));
   }
 
-  const sheetsXml = xmlElement("sheets", undefined, sheetElements);
+  const parts: string[] = [];
+  parts.push(xmlElement("sheets", undefined, sheetElements));
 
-  return xmlDocument("workbook", { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R }, [sheetsXml]);
+  // ── Defined Names (named ranges + print area/titles) ──
+  if (namedRanges && namedRanges.length > 0) {
+    // Build sheet name → index map for resolving scoped named ranges
+    const sheetIndexMap = new Map<string, number>();
+    for (let i = 0; i < sheets.length; i++) {
+      sheetIndexMap.set(sheets[i].name, i);
+    }
+
+    const dnElements: string[] = [];
+
+    for (const nr of namedRanges) {
+      const attrs: Record<string, string | number> = {
+        name: nr.name,
+      };
+
+      // Resolve scope: if scope is a sheet name, convert to localSheetId (0-based index)
+      if (nr.scope !== undefined) {
+        const idx = sheetIndexMap.get(nr.scope);
+        if (idx !== undefined) {
+          attrs["localSheetId"] = idx;
+        }
+      }
+
+      if (nr.comment) {
+        attrs["comment"] = nr.comment;
+      }
+
+      dnElements.push(xmlElement("definedName", attrs, xmlEscape(nr.range)));
+    }
+
+    parts.push(xmlElement("definedNames", undefined, dnElements));
+  }
+
+  return xmlDocument("workbook", { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R }, parts);
 }
 
 /** Generate xl/_rels/workbook.xml.rels */

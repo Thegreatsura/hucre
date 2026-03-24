@@ -7,3 +7,4 @@ export {
   writeCsvObjects,
   formatCsvValue,
 } from "./csv/index";
+export { streamCsvRows, CsvStreamWriter } from "./csv/stream";
