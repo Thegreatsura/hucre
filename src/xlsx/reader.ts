@@ -1,7 +1,7 @@
 // ── XLSX Reader ──────────────────────────────────────────────────────
 // Reads Office Open XML (.xlsx) spreadsheet files.
 
-import type { Workbook, ReadOptions, ReadInput } from "../_types";
+import type { Workbook, ReadOptions, ReadInput, SheetImage } from "../_types";
 import { ParseError, ZipError } from "../errors";
 import { ZipReader } from "../zip/reader";
 import { parseXml } from "../xml/parser";
@@ -13,6 +13,8 @@ import { parseWorksheet } from "./worksheet";
 import type { ParsedStyles } from "./styles";
 import type { SharedString } from "./shared-strings";
 import type { Relationship } from "./relationships";
+import { parseComments } from "./comments-reader";
+import { parseCellRef } from "./worksheet";
 
 // ── OOXML Relationship Types ─────────────────────────────────────────
 
@@ -23,6 +25,9 @@ const REL_WORKSHEET =
 const REL_SHARED_STRINGS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings";
 const REL_STYLES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
+const REL_DRAWING = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+const REL_IMAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -193,6 +198,51 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
     const sheet = parseWorksheet(wsXml, info.name, worksheetCtx);
     if (info.state === "hidden") sheet.hidden = true;
     if (info.state === "veryHidden") sheet.veryHidden = true;
+
+    // Extract images from drawing if present
+    if (worksheetRels) {
+      const drawingRel = worksheetRels.find((r) => r.type === REL_DRAWING);
+      if (drawingRel) {
+        const drawingPath = resolvePath(wsDir, drawingRel.target);
+        const images = await extractSheetImages(zip, drawingPath);
+        if (images.length > 0) {
+          sheet.images = images;
+        }
+      }
+    }
+
+    // Extract comments if present
+    if (worksheetRels) {
+      const commentsRel = worksheetRels.find((r) => r.type === REL_COMMENTS);
+      if (commentsRel) {
+        const commentsPath = resolvePath(wsDir, commentsRel.target);
+        if (zip.has(commentsPath)) {
+          const commentsXml = decodeUtf8(await zip.extract(commentsPath));
+          const commentsMap = parseComments(commentsXml);
+
+          // Attach comments to cell objects
+          if (commentsMap.size > 0) {
+            if (!sheet.cells) {
+              sheet.cells = new Map();
+            }
+            for (const [cellRefStr, comment] of commentsMap) {
+              const pos = parseCellRef(cellRefStr);
+              const key = `${pos.row},${pos.col}`;
+              let cell = sheet.cells.get(key);
+              if (!cell) {
+                cell = {
+                  value: (sheet.rows[pos.row] && sheet.rows[pos.row][pos.col]) ?? null,
+                  type: "string",
+                };
+                sheet.cells.set(key, cell);
+              }
+              cell.comment = comment;
+            }
+          }
+        }
+      }
+    }
+
     sheets.push(sheet);
   }
 
@@ -203,6 +253,187 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
   };
 
   return workbook;
+}
+
+// ── Drawing / Image Extraction ────────────────────────────────────────
+
+/** Extension → SheetImage type mapping */
+const EXT_TO_IMAGE_TYPE: Record<string, SheetImage["type"]> = {
+  png: "png",
+  jpg: "jpeg",
+  jpeg: "jpeg",
+  gif: "gif",
+};
+
+/**
+ * Extract images from a drawing XML and the ZIP archive.
+ * Parses the drawing XML to find image anchors, resolves their
+ * relationships to media files, and extracts the binary data.
+ */
+async function extractSheetImages(zip: ZipReader, drawingPath: string): Promise<SheetImage[]> {
+  if (!zip.has(drawingPath)) return [];
+
+  const drawingXml = decodeUtf8(await zip.extract(drawingPath));
+
+  // Parse drawing relationships
+  const drawDir = dirname(drawingPath);
+  const drawFileName = drawingPath.slice(drawDir.length + 1);
+  const drawRelsPath = drawDir
+    ? `${drawDir}/_rels/${drawFileName}.rels`
+    : `_rels/${drawFileName}.rels`;
+
+  const imageRelMap = new Map<string, string>();
+  if (zip.has(drawRelsPath)) {
+    const drawRelsXml = decodeUtf8(await zip.extract(drawRelsPath));
+    const drawRels = parseRelationships(drawRelsXml);
+    for (const rel of drawRels) {
+      if (rel.type === REL_IMAGE) {
+        imageRelMap.set(rel.id, resolvePath(drawDir, rel.target));
+      }
+    }
+  }
+
+  // Parse the drawing XML to find twoCellAnchor elements with images
+  const doc = parseXml(drawingXml);
+  const images: SheetImage[] = [];
+
+  for (const child of doc.children) {
+    if (typeof child === "string") continue;
+    const local = child.local || child.tag;
+
+    if (local === "twoCellAnchor") {
+      const imageInfo = parseTwoCellAnchor(child, imageRelMap);
+      if (imageInfo) {
+        // Extract image data from ZIP
+        const imagePath = imageInfo.mediaPath;
+        if (zip.has(imagePath)) {
+          const data = await zip.extract(imagePath);
+          images.push({
+            data,
+            type: imageInfo.type,
+            anchor: imageInfo.anchor,
+          });
+        }
+      }
+    }
+  }
+
+  return images;
+}
+
+/** Parse a twoCellAnchor element to extract image position and reference */
+function parseTwoCellAnchor(
+  el: { children: Array<unknown> },
+  relMap: Map<string, string>,
+): {
+  mediaPath: string;
+  type: SheetImage["type"];
+  anchor: SheetImage["anchor"];
+} | null {
+  let fromRow = 0;
+  let fromCol = 0;
+  let toRow = 0;
+  let toCol = 0;
+  let embedId: string | undefined;
+
+  for (const child of el.children) {
+    if (typeof child === "string") continue;
+    const c = child as {
+      local?: string;
+      tag: string;
+      children: Array<unknown>;
+      attrs: Record<string, string>;
+    };
+    const local = c.local || c.tag;
+
+    if (local === "from") {
+      const pos = parseAnchorPosition(c);
+      fromRow = pos.row;
+      fromCol = pos.col;
+    } else if (local === "to") {
+      const pos = parseAnchorPosition(c);
+      toRow = pos.row;
+      toCol = pos.col;
+    } else if (local === "pic") {
+      embedId = findBlipEmbed(c);
+    }
+  }
+
+  if (!embedId) return null;
+
+  const mediaPath = relMap.get(embedId);
+  if (!mediaPath) return null;
+
+  // Determine image type from file extension
+  const ext = mediaPath.split(".").pop()?.toLowerCase() ?? "";
+  const imageType = EXT_TO_IMAGE_TYPE[ext] ?? "png";
+
+  return {
+    mediaPath,
+    type: imageType,
+    anchor: {
+      from: { row: fromRow, col: fromCol },
+      to: { row: toRow, col: toCol },
+    },
+  };
+}
+
+/** Parse row/col from an anchor position element (from or to) */
+function parseAnchorPosition(el: { children: Array<unknown> }): { row: number; col: number } {
+  let row = 0;
+  let col = 0;
+
+  for (const child of el.children) {
+    if (typeof child === "string") continue;
+    const c = child as { local?: string; tag: string; children: Array<unknown> };
+    const local = c.local || c.tag;
+    const text = c.children.filter((ch: unknown) => typeof ch === "string").join("");
+
+    if (local === "row") {
+      row = Number(text) || 0;
+    } else if (local === "col") {
+      col = Number(text) || 0;
+    }
+  }
+
+  return { row, col };
+}
+
+/** Find the r:embed attribute on the blip element inside a pic element */
+function findBlipEmbed(picEl: { children: Array<unknown> }): string | undefined {
+  for (const child of picEl.children) {
+    if (typeof child === "string") continue;
+    const c = child as {
+      local?: string;
+      tag: string;
+      children: Array<unknown>;
+      attrs: Record<string, string>;
+    };
+    const local = c.local || c.tag;
+
+    if (local === "blipFill") {
+      for (const blipChild of c.children) {
+        if (typeof blipChild === "string") continue;
+        const bc = blipChild as { local?: string; tag: string; attrs: Record<string, string> };
+        const blipLocal = bc.local || bc.tag;
+        if (blipLocal === "blip") {
+          // Look for r:embed attribute (namespace prefix may vary)
+          return bc.attrs["r:embed"] ?? bc.attrs["R:embed"] ?? findEmbedAttr(bc.attrs);
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Find an embed attribute regardless of namespace prefix */
+function findEmbedAttr(attrs: Record<string, string>): string | undefined {
+  for (const key of Object.keys(attrs)) {
+    if (key.endsWith(":embed") && attrs[key].startsWith("rId")) {
+      return attrs[key];
+    }
+  }
+  return undefined;
 }
 
 // ── Workbook XML Parsing ─────────────────────────────────────────────

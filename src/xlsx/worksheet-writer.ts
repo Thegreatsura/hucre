@@ -1,11 +1,12 @@
 // ── Worksheet XML Writer ─────────────────────────────────────────────
 // Generates xl/worksheets/sheetN.xml for an XLSX package.
 
-import type { WriteSheet, CellValue, CellStyle, DataValidation } from "../_types";
+import type { WriteSheet, CellValue, CellStyle, DataValidation, SheetProtection } from "../_types";
 import type { StylesCollector } from "./styles-writer";
 import { dateToSerial } from "../_date";
 import { xmlDocument, xmlElement, xmlSelfClose, xmlEscape } from "../xml/writer";
 import { calculateColumnWidth } from "./auto-width";
+import { hashSheetPassword } from "./password";
 
 // ── Hyperlink Relationship ────────────────────────────────────────
 
@@ -17,6 +18,12 @@ export interface HyperlinkRelationship {
 export interface WorksheetResult {
   xml: string;
   hyperlinkRelationships: HyperlinkRelationship[];
+  /** The rId used for the drawing reference (if sheet has images) */
+  drawingRId: string | null;
+  /** The rId used for legacy drawing (VML) reference (if sheet has comments) */
+  legacyDrawingRId: string | null;
+  /** Whether this sheet has comments */
+  hasComments: boolean;
 }
 
 const NS_SPREADSHEET = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -193,6 +200,11 @@ export function writeWorksheetXml(
     ]),
   );
 
+  // ── SheetProtection ──
+  if (sheet.protection) {
+    parts.push(serializeSheetProtection(sheet.protection));
+  }
+
   // ── SheetFormatPr ──
   parts.push(xmlSelfClose("sheetFormatPr", { defaultRowHeight: 15 }));
 
@@ -294,9 +306,38 @@ export function writeWorksheetXml(
     parts.push(hyperlinksXml);
   }
 
+  // ── Drawing (images) ──
+  let drawingRId: string | null = null;
+  let nextRId = hyperlinkRelationships.length + 1;
+  if (sheet.images && sheet.images.length > 0) {
+    // Drawing rId comes after all hyperlink rIds
+    drawingRId = `rId${nextRId}`;
+    nextRId++;
+    parts.push(xmlSelfClose("drawing", { "r:id": drawingRId }));
+  }
+
+  // ── Legacy Drawing (VML — for comments) ──
+  let legacyDrawingRId: string | null = null;
+  let hasComments = false;
+  if (sheet.cells) {
+    for (const [, cell] of sheet.cells) {
+      if (cell.comment) {
+        hasComments = true;
+        break;
+      }
+    }
+  }
+  if (hasComments) {
+    legacyDrawingRId = `rId${nextRId}`;
+    parts.push(xmlSelfClose("legacyDrawing", { "r:id": legacyDrawingRId }));
+  }
+
   return {
     xml: xmlDocument("worksheet", { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R }, parts),
     hyperlinkRelationships,
+    drawingRId,
+    legacyDrawingRId,
+    hasComments,
   };
 }
 
@@ -472,6 +513,71 @@ function serializeCell(
   }
 
   return null;
+}
+
+// ── Sheet Protection Serialization ────────────────────────────────
+
+/**
+ * Serialize a SheetProtection object into a `<sheetProtection>` XML element.
+ *
+ * XLSX attribute semantics:
+ * - `sheet="1"` means the sheet IS protected
+ * - `objects="1"` means objects ARE protected
+ * - `scenarios="1"` means scenarios ARE protected
+ * - All other boolean attrs (selectLockedCells, formatCells, etc.) use "1" to mean
+ *   the action is PROHIBITED (not allowed).
+ *
+ * Our API uses intuitive "allow" booleans: `true` means the user CAN do it.
+ * So we invert them when writing to XML: allow=true → attr="0" (not prohibited).
+ */
+function serializeSheetProtection(protection: SheetProtection): string {
+  const attrs: Record<string, string | number> = {};
+
+  // Password hash
+  if (protection.password) {
+    attrs["password"] = hashSheetPassword(protection.password);
+  }
+
+  // sheet, objects, scenarios: true means protected → "1"
+  if (protection.sheet !== false) {
+    // Default to protected when protection object exists
+    attrs["sheet"] = 1;
+  }
+  if (protection.objects) {
+    attrs["objects"] = 1;
+  }
+  if (protection.scenarios) {
+    attrs["scenarios"] = 1;
+  }
+
+  // All other options: our API = "allow" booleans.
+  // In XLSX, "1" = prohibited. So allow=true → "0", allow=false → "1".
+  // We only emit the attribute if the user explicitly set it.
+  const allowOptions: Array<[keyof SheetProtection, string]> = [
+    ["selectLockedCells", "selectLockedCells"],
+    ["selectUnlockedCells", "selectUnlockedCells"],
+    ["formatCells", "formatCells"],
+    ["formatColumns", "formatColumns"],
+    ["formatRows", "formatRows"],
+    ["insertColumns", "insertColumns"],
+    ["insertRows", "insertRows"],
+    ["insertHyperlinks", "insertHyperlinks"],
+    ["deleteColumns", "deleteColumns"],
+    ["deleteRows", "deleteRows"],
+    ["sort", "sort"],
+    ["autoFilter", "autoFilter"],
+    ["pivotTables", "pivotTables"],
+  ];
+
+  for (const [prop, attr] of allowOptions) {
+    const val = protection[prop];
+    if (val !== undefined && typeof val === "boolean") {
+      // true (allowed) → "0" (not prohibited), false (disallowed) → "1" (prohibited)
+      attrs[attr] = val ? 0 : 1;
+    }
+  }
+
+  return xmlSelfClose("sheetProtection", attrs);
 }
 
 // ── Data Validation Serialization ─────────────────────────────────

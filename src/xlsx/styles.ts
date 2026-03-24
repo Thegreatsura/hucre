@@ -4,6 +4,7 @@
 import type { XmlElement } from "../xml/parser";
 import type {
   CellStyle,
+  CellProtection,
   FontStyle,
   FillStyle,
   BorderStyle,
@@ -32,11 +33,13 @@ export interface CellXf {
   fillId: number;
   borderId: number;
   alignment?: AlignmentStyle;
+  protection?: CellProtection;
   applyNumberFormat?: boolean;
   applyFont?: boolean;
   applyFill?: boolean;
   applyBorder?: boolean;
   applyAlignment?: boolean;
+  applyProtection?: boolean;
 }
 
 // ── Built-in Number Formats ──────────────────────────────────────────
@@ -391,17 +394,38 @@ function parseCellXf(el: XmlElement): CellXf {
   if (el.attrs["applyAlignment"] === "1" || el.attrs["applyAlignment"] === "true") {
     xf.applyAlignment = true;
   }
+  if (el.attrs["applyProtection"] === "1" || el.attrs["applyProtection"] === "true") {
+    xf.applyProtection = true;
+  }
 
-  // Parse alignment child element
+  // Parse alignment and protection child elements
   for (const child of el.children) {
     if (typeof child === "string") continue;
     const local = child.local || child.tag;
     if (local === "alignment") {
       xf.alignment = parseAlignment(child);
+    } else if (local === "protection") {
+      xf.protection = parseProtection(child);
     }
   }
 
   return xf;
+}
+
+function parseProtection(el: XmlElement): CellProtection {
+  const prot: CellProtection = {};
+
+  const locked = el.attrs["locked"];
+  if (locked !== undefined) {
+    prot.locked = locked === "1" || locked === "true";
+  }
+
+  const hidden = el.attrs["hidden"];
+  if (hidden !== undefined) {
+    prot.hidden = hidden === "1" || hidden === "true";
+  }
+
+  return prot;
 }
 
 function parseAlignment(el: XmlElement): AlignmentStyle {
@@ -473,6 +497,11 @@ export function resolveStyle(styles: ParsedStyles, styleIndex: number): CellStyl
   // Alignment
   if (xf.alignment) {
     result.alignment = xf.alignment;
+  }
+
+  // Protection
+  if (xf.protection) {
+    result.protection = xf.protection;
   }
 
   return result;

@@ -12,6 +12,7 @@ import type {
   DataValidation,
   ValidationType,
   ValidationOperator,
+  SheetProtection,
 } from "../_types";
 import type { SharedString } from "./shared-strings";
 import type { ParsedStyles } from "./styles";
@@ -108,6 +109,9 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
   // Data validations parsed from <dataValidations> section
   const dataValidations: DataValidation[] = [];
 
+  // Sheet protection parsed from <sheetProtection> element
+  let sheetProtection: SheetProtection | undefined;
+
   // SAX parsing state
   let inSheetData = false;
   let inRow = false;
@@ -198,6 +202,9 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
             inInlineRPr = true;
             currentRunFont = {};
           }
+          break;
+        case "sheetProtection":
+          sheetProtection = parseSheetProtectionAttrs(attrs);
           break;
         case "mergeCells":
           inMergeCells = true;
@@ -433,8 +440,70 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
   if (dataValidations.length > 0) {
     sheet.dataValidations = dataValidations;
   }
+  if (sheetProtection) {
+    sheet.protection = sheetProtection;
+  }
 
   return sheet;
+}
+
+// ── Sheet Protection Parser ─────────────────────────────────────────
+
+/**
+ * Parse `<sheetProtection>` attributes into a SheetProtection object.
+ *
+ * XLSX attribute semantics:
+ * - `sheet="1"` → sheet IS protected
+ * - `objects="1"` → objects ARE protected
+ * - `scenarios="1"` → scenarios ARE protected
+ * - All other attrs: "1" = action is PROHIBITED → we convert to allow=false
+ *   "0" = action is ALLOWED → we convert to allow=true
+ */
+function parseSheetProtectionAttrs(attrs: Record<string, string>): SheetProtection {
+  const prot: SheetProtection = {};
+
+  // password is stored as hex hash — we store it as-is (hashed form)
+  // We do NOT store it as the `password` field since that's the raw plaintext in our API.
+  // Instead we skip it — the hash is one-way and can't be reversed.
+  // The presence of a password attr just means the sheet was password-protected.
+
+  if (attrs["sheet"] === "1" || attrs["sheet"] === "true") {
+    prot.sheet = true;
+  }
+  if (attrs["objects"] === "1" || attrs["objects"] === "true") {
+    prot.objects = true;
+  }
+  if (attrs["scenarios"] === "1" || attrs["scenarios"] === "true") {
+    prot.scenarios = true;
+  }
+
+  // All other options: XLSX "1" = prohibited → our API allow = false
+  const allowOptions: Array<[string, keyof SheetProtection]> = [
+    ["selectLockedCells", "selectLockedCells"],
+    ["selectUnlockedCells", "selectUnlockedCells"],
+    ["formatCells", "formatCells"],
+    ["formatColumns", "formatColumns"],
+    ["formatRows", "formatRows"],
+    ["insertColumns", "insertColumns"],
+    ["insertRows", "insertRows"],
+    ["insertHyperlinks", "insertHyperlinks"],
+    ["deleteColumns", "deleteColumns"],
+    ["deleteRows", "deleteRows"],
+    ["sort", "sort"],
+    ["autoFilter", "autoFilter"],
+    ["pivotTables", "pivotTables"],
+  ];
+
+  for (const [attr, prop] of allowOptions) {
+    const val = attrs[attr];
+    if (val !== undefined) {
+      // "1" or "true" = prohibited → allow = false
+      // "0" or "false" = allowed → allow = true
+      (prot as Record<string, boolean>)[prop] = !(val === "1" || val === "true");
+    }
+  }
+
+  return prot;
 }
 
 // ── Data Validation Builder ─────────────────────────────────────────

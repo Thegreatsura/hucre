@@ -1347,8 +1347,8 @@ describe("writeXlsx", () => {
 
     const protectionEl = findChild(protectedXf, "protection");
     expect(protectionEl).toBeDefined();
-    expect(protectionEl.attrs["locked"]).toBe("true");
-    expect(protectionEl.attrs["hidden"]).toBe("true");
+    expect(protectionEl.attrs["locked"]).toBe("1");
+    expect(protectionEl.attrs["hidden"]).toBe("1");
   });
 
   it("writes gradient fill", async () => {

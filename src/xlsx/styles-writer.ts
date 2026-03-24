@@ -398,9 +398,9 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
   }
 
   function serializeProtection(p: CellProtection): string {
-    const attrs: Record<string, string | number | boolean> = {};
-    if (p.locked !== undefined) attrs["locked"] = p.locked;
-    if (p.hidden !== undefined) attrs["hidden"] = p.hidden;
+    const attrs: Record<string, string | number> = {};
+    if (p.locked !== undefined) attrs["locked"] = p.locked ? 1 : 0;
+    if (p.hidden !== undefined) attrs["hidden"] = p.hidden ? 1 : 0;
     return xmlSelfClose("protection", attrs);
   }
 
