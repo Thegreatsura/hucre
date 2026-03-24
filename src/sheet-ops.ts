@@ -1,7 +1,7 @@
 // ── Sheet Operations ────────────────────────────────────────────────
 // In-memory row/column manipulation utilities for Sheet objects.
 
-import type { Sheet, MergeRange, RowDef } from "./_types";
+import type { Sheet, MergeRange, RowDef, Workbook, Cell, CellStyle } from "./_types";
 import { parseCellRef } from "./xlsx/worksheet";
 import { rangeRef } from "./xlsx/worksheet-writer";
 
@@ -770,5 +770,389 @@ export function groupRows(sheet: Sheet, startRow: number, endRow: number, level:
     const existing = sheet.rowDefs.get(i) || {};
     existing.outlineLevel = level;
     sheet.rowDefs.set(i, existing);
+  }
+}
+
+// ── Deep Clone Helpers ────────────────────────────────────────────────
+
+function cloneStyle(style: CellStyle): CellStyle {
+  const result: CellStyle = {};
+  if (style.font)
+    result.font = { ...style.font, color: style.font.color ? { ...style.font.color } : undefined };
+  if (style.fill) {
+    if (style.fill.type === "pattern") {
+      result.fill = {
+        type: "pattern",
+        pattern: style.fill.pattern,
+        fgColor: style.fill.fgColor ? { ...style.fill.fgColor } : undefined,
+        bgColor: style.fill.bgColor ? { ...style.fill.bgColor } : undefined,
+      };
+    } else {
+      result.fill = {
+        type: "gradient",
+        degree: style.fill.degree,
+        stops: style.fill.stops.map((s) => ({ position: s.position, color: { ...s.color } })),
+      };
+    }
+  }
+  if (style.border) {
+    result.border = {
+      ...style.border,
+      top: style.border.top
+        ? {
+            ...style.border.top,
+            color: style.border.top.color ? { ...style.border.top.color } : undefined,
+          }
+        : undefined,
+      right: style.border.right
+        ? {
+            ...style.border.right,
+            color: style.border.right.color ? { ...style.border.right.color } : undefined,
+          }
+        : undefined,
+      bottom: style.border.bottom
+        ? {
+            ...style.border.bottom,
+            color: style.border.bottom.color ? { ...style.border.bottom.color } : undefined,
+          }
+        : undefined,
+      left: style.border.left
+        ? {
+            ...style.border.left,
+            color: style.border.left.color ? { ...style.border.left.color } : undefined,
+          }
+        : undefined,
+      diagonal: style.border.diagonal
+        ? {
+            ...style.border.diagonal,
+            color: style.border.diagonal.color ? { ...style.border.diagonal.color } : undefined,
+          }
+        : undefined,
+    };
+  }
+  if (style.alignment) result.alignment = { ...style.alignment };
+  if (style.numFmt !== undefined) result.numFmt = style.numFmt;
+  if (style.protection) result.protection = { ...style.protection };
+  return result;
+}
+
+function cloneCell(cell: Cell): Cell {
+  const result: Cell = { value: cell.value, type: cell.type };
+  if (cell.style) result.style = cloneStyle(cell.style);
+  if (cell.formula !== undefined) result.formula = cell.formula;
+  if (cell.formulaResult !== undefined) result.formulaResult = cell.formulaResult;
+  if (cell.richText)
+    result.richText = cell.richText.map((r) => ({
+      text: r.text,
+      font: r.font
+        ? { ...r.font, color: r.font.color ? { ...r.font.color } : undefined }
+        : undefined,
+    }));
+  if (cell.hyperlink) result.hyperlink = { ...cell.hyperlink };
+  if (cell.comment) {
+    result.comment = { text: cell.comment.text, author: cell.comment.author };
+    if (cell.comment.richText) {
+      result.comment.richText = cell.comment.richText.map((r) => ({
+        text: r.text,
+        font: r.font
+          ? { ...r.font, color: r.font.color ? { ...r.font.color } : undefined }
+          : undefined,
+      }));
+    }
+  }
+  return result;
+}
+
+// ── Clone Sheet ─────────────────────────────────────────────────────
+
+/**
+ * Deep clone a sheet (all data, styles, merges, validations, etc.).
+ * The cloned sheet gets a new name.
+ */
+export function cloneSheet(sheet: Sheet, newName: string): Sheet {
+  // Deep copy rows
+  const rows = sheet.rows.map((row) => [...row]);
+
+  const cloned: Sheet = { name: newName, rows };
+
+  // Deep copy cells Map
+  if (sheet.cells && sheet.cells.size > 0) {
+    const cells = new Map<string, Cell>();
+    for (const [key, cell] of sheet.cells) {
+      cells.set(key, cloneCell(cell));
+    }
+    cloned.cells = cells;
+  }
+
+  // Deep copy columns
+  if (sheet.columns) {
+    cloned.columns = sheet.columns.map((col) => ({
+      ...col,
+      style: col.style ? cloneStyle(col.style) : undefined,
+    }));
+  }
+
+  // Deep copy rowDefs
+  if (sheet.rowDefs && sheet.rowDefs.size > 0) {
+    const rowDefs = new Map<number, RowDef>();
+    for (const [key, def] of sheet.rowDefs) {
+      rowDefs.set(key, { ...def });
+    }
+    cloned.rowDefs = rowDefs;
+  }
+
+  // Deep copy merges
+  if (sheet.merges) {
+    cloned.merges = sheet.merges.map((m) => ({ ...m }));
+  }
+
+  // Deep copy data validations
+  if (sheet.dataValidations) {
+    cloned.dataValidations = sheet.dataValidations.map((dv) => ({
+      ...dv,
+      values: dv.values ? [...dv.values] : undefined,
+    }));
+  }
+
+  // Deep copy conditional rules
+  if (sheet.conditionalRules) {
+    cloned.conditionalRules = sheet.conditionalRules.map((rule) => {
+      const clonedRule = { ...rule };
+      if (rule.style) clonedRule.style = cloneStyle(rule.style);
+      if (rule.formula && Array.isArray(rule.formula)) clonedRule.formula = [...rule.formula];
+      if (rule.colorScale) {
+        clonedRule.colorScale = {
+          cfvo: rule.colorScale.cfvo.map((c) => ({ ...c })),
+          colors: [...rule.colorScale.colors],
+        };
+      }
+      if (rule.dataBar) {
+        clonedRule.dataBar = {
+          cfvo: rule.dataBar.cfvo.map((c) => ({ ...c })),
+          color: rule.dataBar.color,
+        };
+      }
+      if (rule.iconSet) {
+        clonedRule.iconSet = {
+          ...rule.iconSet,
+          cfvo: rule.iconSet.cfvo.map((c) => ({ ...c })),
+        };
+      }
+      return clonedRule;
+    });
+  }
+
+  // Copy autoFilter
+  if (sheet.autoFilter) {
+    cloned.autoFilter = { ...sheet.autoFilter };
+  }
+
+  // Copy freezePane
+  if (sheet.freezePane) {
+    cloned.freezePane = { ...sheet.freezePane };
+  }
+
+  // Deep copy images
+  if (sheet.images) {
+    cloned.images = sheet.images.map((img) => ({
+      data: new Uint8Array(img.data),
+      type: img.type,
+      anchor: {
+        from: { ...img.anchor.from },
+        to: img.anchor.to ? { ...img.anchor.to } : undefined,
+      },
+      width: img.width,
+      height: img.height,
+    }));
+  }
+
+  // Copy protection
+  if (sheet.protection) {
+    cloned.protection = { ...sheet.protection };
+  }
+
+  // Copy pageSetup
+  if (sheet.pageSetup) {
+    cloned.pageSetup = {
+      ...sheet.pageSetup,
+      margins: sheet.pageSetup.margins ? { ...sheet.pageSetup.margins } : undefined,
+    };
+  }
+
+  // Copy headerFooter
+  if (sheet.headerFooter) {
+    cloned.headerFooter = { ...sheet.headerFooter };
+  }
+
+  // Copy view
+  if (sheet.view) {
+    cloned.view = {
+      ...sheet.view,
+      tabColor: sheet.view.tabColor ? { ...sheet.view.tabColor } : undefined,
+    };
+  }
+
+  // Copy hidden/veryHidden
+  if (sheet.hidden !== undefined) cloned.hidden = sheet.hidden;
+  if (sheet.veryHidden !== undefined) cloned.veryHidden = sheet.veryHidden;
+
+  // Deep copy tables
+  if (sheet.tables) {
+    cloned.tables = sheet.tables.map((table) => ({
+      ...table,
+      columns: table.columns.map((col) => ({ ...col })),
+    }));
+  }
+
+  return cloned;
+}
+
+// ── Copy Sheet To Workbook ──────────────────────────────────────────
+
+/**
+ * Copy a sheet from one workbook to another.
+ * Clones the sheet and appends it to the target workbook.
+ */
+export function copySheetToWorkbook(
+  sourceSheet: Sheet,
+  targetWorkbook: Workbook,
+  newName?: string,
+): void {
+  const cloned = cloneSheet(sourceSheet, newName ?? sourceSheet.name);
+  targetWorkbook.sheets.push(cloned);
+}
+
+// ── Copy Range ──────────────────────────────────────────────────────
+
+/**
+ * Copy a range of cells from one location to another within the same sheet.
+ * Copies values, styles, and merges.
+ */
+export function copyRange(
+  sheet: Sheet,
+  source: { startRow: number; startCol: number; endRow: number; endCol: number },
+  target: { startRow: number; startCol: number },
+): void {
+  const rowCount = source.endRow - source.startRow + 1;
+  const colCount = source.endCol - source.startCol + 1;
+
+  // Ensure rows array is large enough for target
+  const targetEndRow = target.startRow + rowCount - 1;
+  while (sheet.rows.length <= targetEndRow) {
+    sheet.rows.push([]);
+  }
+
+  // Read all source values and cells first (to handle overlapping ranges)
+  const sourceValues: import("./_types").CellValue[][] = [];
+  const sourceCells: (Cell | null)[][] = [];
+
+  for (let r = 0; r < rowCount; r++) {
+    sourceValues.push([]);
+    sourceCells.push([]);
+    for (let c = 0; c < colCount; c++) {
+      const srcRow = source.startRow + r;
+      const srcCol = source.startCol + c;
+
+      // Read value
+      const row = sheet.rows[srcRow];
+      sourceValues[r].push(row && srcCol < row.length ? row[srcCol] : null);
+
+      // Read cell
+      if (sheet.cells) {
+        const key = `${srcRow},${srcCol}`;
+        const cell = sheet.cells.get(key);
+        sourceCells[r].push(cell ? cloneCell(cell) : null);
+      } else {
+        sourceCells[r].push(null);
+      }
+    }
+  }
+
+  // Write values and cells to target
+  for (let r = 0; r < rowCount; r++) {
+    const tgtRow = target.startRow + r;
+    const row = sheet.rows[tgtRow];
+
+    for (let c = 0; c < colCount; c++) {
+      const tgtCol = target.startCol + c;
+
+      // Extend row if needed
+      while (row.length <= tgtCol) row.push(null);
+      row[tgtCol] = sourceValues[r][c];
+
+      // Copy cell data
+      const srcCell = sourceCells[r][c];
+      if (srcCell) {
+        if (!sheet.cells) sheet.cells = new Map();
+        sheet.cells.set(`${tgtRow},${tgtCol}`, srcCell);
+      } else if (sheet.cells) {
+        sheet.cells.delete(`${tgtRow},${tgtCol}`);
+      }
+    }
+  }
+
+  // Copy merges that are fully within the source range
+  if (sheet.merges) {
+    const newMerges: MergeRange[] = [];
+    for (const merge of sheet.merges) {
+      if (
+        merge.startRow >= source.startRow &&
+        merge.endRow <= source.endRow &&
+        merge.startCol >= source.startCol &&
+        merge.endCol <= source.endCol
+      ) {
+        const rowOffset = target.startRow - source.startRow;
+        const colOffset = target.startCol - source.startCol;
+        newMerges.push({
+          startRow: merge.startRow + rowOffset,
+          startCol: merge.startCol + colOffset,
+          endRow: merge.endRow + rowOffset,
+          endCol: merge.endCol + colOffset,
+        });
+      }
+    }
+    // Append new merges (avoid duplicates by checking if already exists)
+    for (const nm of newMerges) {
+      const exists = sheet.merges.some(
+        (m) =>
+          m.startRow === nm.startRow &&
+          m.startCol === nm.startCol &&
+          m.endRow === nm.endRow &&
+          m.endCol === nm.endCol,
+      );
+      if (!exists) {
+        sheet.merges.push(nm);
+      }
+    }
+  }
+}
+
+// ── Move Sheet ──────────────────────────────────────────────────────
+
+/**
+ * Reorder sheets in a workbook.
+ */
+export function moveSheet(workbook: Workbook, fromIndex: number, toIndex: number): void {
+  if (fromIndex === toIndex) return;
+  const [sheet] = workbook.sheets.splice(fromIndex, 1);
+  workbook.sheets.splice(toIndex, 0, sheet);
+}
+
+// ── Remove Sheet ────────────────────────────────────────────────────
+
+/**
+ * Remove a sheet from a workbook.
+ */
+export function removeSheet(workbook: Workbook, index: number): void {
+  workbook.sheets.splice(index, 1);
+  // Adjust activeSheet if needed
+  if (workbook.activeSheet !== undefined) {
+    if (workbook.activeSheet === index) {
+      // If we removed the active sheet, set to the previous sheet or 0
+      workbook.activeSheet =
+        workbook.sheets.length > 0 ? Math.min(index, workbook.sheets.length - 1) : 0;
+    } else if (workbook.activeSheet > index) {
+      workbook.activeSheet--;
+    }
   }
 }

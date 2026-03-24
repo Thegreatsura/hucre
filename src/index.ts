@@ -52,7 +52,23 @@ export {
   hideRows,
   hideColumns,
   groupRows,
+  cloneSheet,
+  copySheetToWorkbook,
+  copyRange,
+  moveSheet,
+  removeSheet,
 } from "./sheet-ops";
+
+// ── Web Worker Helpers ───────────────────────────────────────────
+export { serializeWorkbook, deserializeWorkbook, WORKER_SAFE_FUNCTIONS } from "./worker";
+export type {
+  SerializedWorkbook,
+  SerializedSheet,
+  SerializedCell,
+  SerializedCellValue,
+  SerializedSheetImage,
+  SerializedWorkbookProperties,
+} from "./worker";
 
 // ── Errors ─────────────────────────────────────────────────────────
 export {
