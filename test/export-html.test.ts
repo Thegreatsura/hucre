@@ -232,6 +232,33 @@ describe("toHtml", () => {
     const sheet = makeSheet([[42]]);
     const html = toHtml(sheet, { includeStyleTag: true, classPrefix: "sp" });
     expect(html).toContain(".sp-num");
+    expect(html).toContain(".sp-table");
+    expect(html).toContain('class="sp-table"');
+  });
+
+  it("dark mode CSS has correct structure", () => {
+    const sheet = makeSheet([["Name", "Price"], ["Widget", 9.99]]);
+    const html = toHtml(sheet, { includeStyleTag: true, headerRow: true });
+    // Light mode styles
+    expect(html).toContain("color:#1a1a1a");
+    expect(html).toContain("background:#fff");
+    expect(html).toContain("border:1px solid #e0e0e0");
+    expect(html).toContain("background:#f5f5f5");
+    // Dark mode media query
+    expect(html).toContain("@media(prefers-color-scheme:dark)");
+    expect(html).toContain("color:#e0e0e0");
+    expect(html).toContain("background:#1a1a1a");
+    expect(html).toContain("border-color:#333");
+    // Hover
+    expect(html).toContain("tr:hover td");
+  });
+
+  it("without includeStyleTag no dark/light CSS generated", () => {
+    const sheet = makeSheet([["A"]]);
+    const html = toHtml(sheet, { includeStyleTag: false });
+    expect(html).not.toContain("<style>");
+    expect(html).not.toContain("prefers-color-scheme");
+    expect(html).not.toContain("hucre-table");
   });
 
   it("no classes option (classes: false)", () => {
