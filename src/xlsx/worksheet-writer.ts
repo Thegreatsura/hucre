@@ -192,10 +192,32 @@ export function writeWorksheetXml(
 
   const parts: string[] = [];
 
-  // ── SheetPr (tab color, etc.) — must come before sheetViews ──
-  if (sheet.view?.tabColor) {
-    const tabColorAttrs = serializeColorAttrs(sheet.view.tabColor);
-    parts.push(xmlElement("sheetPr", undefined, [xmlSelfClose("tabColor", tabColorAttrs)]));
+  // ── SheetPr (tab color, outlinePr, etc.) — must come first per OOXML spec ──
+  {
+    const sheetPrChildren: string[] = [];
+    if (sheet.view?.tabColor) {
+      sheetPrChildren.push(xmlSelfClose("tabColor", serializeColorAttrs(sheet.view.tabColor)));
+    }
+    if (sheet.outlineProperties) {
+      const outlineAttrs: Record<string, string | number | boolean> = {};
+      if (sheet.outlineProperties.summaryBelow !== undefined) {
+        outlineAttrs["summaryBelow"] = sheet.outlineProperties.summaryBelow ? 1 : 0;
+      }
+      if (sheet.outlineProperties.summaryRight !== undefined) {
+        outlineAttrs["summaryRight"] = sheet.outlineProperties.summaryRight ? 1 : 0;
+      }
+      sheetPrChildren.push(xmlSelfClose("outlinePr", outlineAttrs));
+    }
+    if (sheetPrChildren.length > 0) {
+      parts.push(xmlElement("sheetPr", undefined, sheetPrChildren));
+    }
+  }
+
+  // ── Dimension (OOXML spec: after sheetPr, before sheetViews) ──
+  if (rowCount > 0 || maxCols > 0) {
+    const endRow = rowCount > 0 ? rowCount - 1 : 0;
+    const endCol = maxCols > 0 ? maxCols - 1 : 0;
+    parts.push(xmlSelfClose("dimension", { ref: rangeRef(0, 0, endRow, endCol) }));
   }
 
   // ── SheetViews (freeze panes, view settings) ──
@@ -277,13 +299,6 @@ export function writeWorksheetXml(
   // ── SheetFormatPr ──
   parts.push(xmlSelfClose("sheetFormatPr", { defaultRowHeight: 15 }));
 
-  // ── Dimension ──
-  if (rowCount > 0 || maxCols > 0) {
-    const endRow = rowCount > 0 ? rowCount - 1 : 0;
-    const endCol = maxCols > 0 ? maxCols - 1 : 0;
-    parts.push(xmlSelfClose("dimension", { ref: rangeRef(0, 0, endRow, endCol) }));
-  }
-
   // ── Columns ──
   if (sheet.columns && sheet.columns.length > 0) {
     const colElements: string[] = [];
@@ -305,7 +320,7 @@ export function writeWorksheetXml(
         });
       }
 
-      if (effectiveWidth !== undefined || col.hidden || col.outlineLevel) {
+      if (effectiveWidth !== undefined || col.hidden || col.outlineLevel || col.collapsed) {
         const colAttrs: Record<string, string | number | boolean> = {
           min: i + 1,
           max: i + 1,
@@ -319,6 +334,9 @@ export function writeWorksheetXml(
         }
         if (col.outlineLevel) {
           colAttrs["outlineLevel"] = col.outlineLevel;
+        }
+        if (col.collapsed) {
+          colAttrs["collapsed"] = true;
         }
         colElements.push(xmlSelfClose("col", colAttrs));
       }
@@ -335,7 +353,8 @@ export function writeWorksheetXml(
     const row = resolvedRows[r];
     const rowDef = sheet.rowDefs?.get(r);
     const hasRowDef =
-      rowDef && (rowDef.height !== undefined || rowDef.hidden || rowDef.outlineLevel);
+      rowDef &&
+      (rowDef.height !== undefined || rowDef.hidden || rowDef.outlineLevel || rowDef.collapsed);
 
     if ((!row || row.length === 0) && !hasRowDef) continue;
 
@@ -366,6 +385,9 @@ export function writeWorksheetXml(
       }
       if (rowDef?.outlineLevel) {
         rowAttrs["outlineLevel"] = rowDef.outlineLevel;
+      }
+      if (rowDef?.collapsed) {
+        rowAttrs["collapsed"] = 1;
       }
       if (hasAnyCells) {
         rowElements.push(xmlElement("row", rowAttrs, cellElements));

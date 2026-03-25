@@ -7,6 +7,7 @@ export { writeXlsx } from "./xlsx/writer";
 export { openXlsx, saveXlsx } from "./xlsx/roundtrip";
 export type { RoundtripWorkbook } from "./xlsx/roundtrip";
 export { hashSheetPassword } from "./xlsx/password";
+export { calculateColumnWidth, measureValueWidth, calculateRowHeight } from "./xlsx/auto-size";
 export { parseThemeColors, resolveThemeColor } from "./xlsx/theme";
 export { streamXlsxRows } from "./xlsx/stream-reader";
 export type { StreamRow } from "./xlsx/stream-reader";
@@ -156,6 +157,8 @@ export type {
   WriteOptions,
   WriteSheet,
   WriteOutput,
+  // Outline
+  OutlineProperties,
   // CSV
   CsvReadOptions,
   CsvWriteOptions,

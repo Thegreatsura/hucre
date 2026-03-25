@@ -134,7 +134,9 @@ function isWhitespace(code: number): boolean {
  * No DOM construction — minimal memory footprint.
  */
 export function parseSax(xml: string, handlers: SaxHandlers): void {
-  const len = xml.length;
+  // Strip UTF-8 BOM (U+FEFF) if present at the start of the input
+  const input = xml.charCodeAt(0) === 0xfeff ? xml.slice(1) : xml;
+  const len = input.length;
   let i = 0;
 
   function error(msg: string): never {
@@ -142,7 +144,7 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
     let line = 1;
     let col = 1;
     for (let j = 0; j < i && j < len; j++) {
-      if (xml.charCodeAt(j) === 10 /* \n */) {
+      if (input.charCodeAt(j) === 10 /* \n */) {
         line++;
         col = 1;
       } else {
@@ -153,31 +155,31 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
   }
 
   while (i < len) {
-    if (xml.charCodeAt(i) === 60 /* < */) {
+    if (input.charCodeAt(i) === 60 /* < */) {
       // Possible tag
-      const next = i + 1 < len ? xml.charCodeAt(i + 1) : 0;
+      const next = i + 1 < len ? input.charCodeAt(i + 1) : 0;
 
       if (next === 33 /* ! */) {
         // Comment or CDATA
-        if (xml.slice(i, i + 4) === "<!--") {
+        if (input.slice(i, i + 4) === "<!--") {
           // Comment: skip to -->
-          const end = xml.indexOf("-->", i + 4);
+          const end = input.indexOf("-->", i + 4);
           if (end === -1) error("Unterminated comment");
           i = end + 3;
           continue;
         }
-        if (xml.slice(i, i + 9) === "<![CDATA[") {
+        if (input.slice(i, i + 9) === "<![CDATA[") {
           // CDATA section
-          const end = xml.indexOf("]]>", i + 9);
+          const end = input.indexOf("]]>", i + 9);
           if (end === -1) error("Unterminated CDATA section");
-          const text = xml.slice(i + 9, end);
+          const text = input.slice(i + 9, end);
           handlers.onCData?.(text);
           handlers.onText?.(text);
           i = end + 3;
           continue;
         }
         // DOCTYPE or other declaration — skip
-        const end = xml.indexOf(">", i + 2);
+        const end = input.indexOf(">", i + 2);
         if (end === -1) error("Unterminated declaration");
         i = end + 1;
         continue;
@@ -185,7 +187,7 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
 
       if (next === 63 /* ? */) {
         // Processing instruction: <?...?>
-        const end = xml.indexOf("?>", i + 2);
+        const end = input.indexOf("?>", i + 2);
         if (end === -1) error("Unterminated processing instruction");
         i = end + 2;
         continue;
@@ -193,9 +195,9 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
 
       if (next === 47 /* / */) {
         // Closing tag: </tagName>
-        const end = xml.indexOf(">", i + 2);
+        const end = input.indexOf(">", i + 2);
         if (end === -1) error("Unterminated closing tag");
-        const tag = xml.slice(i + 2, end).trim();
+        const tag = input.slice(i + 2, end).trim();
         handlers.onCloseTag?.(tag);
         i = end + 1;
         continue;
@@ -206,7 +208,7 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
       let j = i + 1;
       let inQuote = 0;
       while (j < len) {
-        const c = xml.charCodeAt(j);
+        const c = input.charCodeAt(j);
         if (inQuote) {
           if (c === inQuote) inQuote = 0;
         } else if (c === 34 /* " */ || c === 39 /* ' */) {
@@ -218,8 +220,8 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
       }
       if (j >= len) error("Unterminated opening tag");
 
-      const selfClosing = xml.charCodeAt(j - 1) === 47; /* / */
-      const tagContent = xml.slice(i + 1, selfClosing ? j - 1 : j);
+      const selfClosing = input.charCodeAt(j - 1) === 47; /* / */
+      const tagContent = input.slice(i + 1, selfClosing ? j - 1 : j);
 
       // Split tag name from attributes
       let spaceIdx = 0;
@@ -240,8 +242,8 @@ export function parseSax(xml: string, handlers: SaxHandlers): void {
 
     // Text content
     const textStart = i;
-    while (i < len && xml.charCodeAt(i) !== 60 /* < */) i++;
-    const rawText = xml.slice(textStart, i);
+    while (i < len && input.charCodeAt(i) !== 60 /* < */) i++;
+    const rawText = input.slice(textStart, i);
     if (rawText) {
       const decoded = decodeEntities(rawText);
       handlers.onText?.(decoded);

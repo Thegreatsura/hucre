@@ -94,6 +94,9 @@ export function writeAppProperties(props?: WorkbookProperties): string {
   // Always include the application name
   children.push(xmlElement("Application", undefined, "hucre"));
 
+  // DocSecurity: 0 = no security (required by OOXML validators)
+  children.push(xmlElement("DocSecurity", undefined, "0"));
+
   if (props?.company) {
     children.push(xmlElement("Company", undefined, xmlEscape(props.company)));
   }

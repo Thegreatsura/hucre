@@ -98,6 +98,9 @@ export function writeWorkbookXml(
     parts.push(xmlElement("definedNames", undefined, dnElements));
   }
 
+  // ── calcPr — tells Excel to recalculate all formulas on open ──
+  parts.push(xmlSelfClose("calcPr", { calcId: 0, fullCalcOnLoad: 1 }));
+
   return xmlDocument("workbook", { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R }, parts);
 }
 

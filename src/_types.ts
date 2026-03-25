@@ -212,6 +212,8 @@ export interface ColumnDef {
   hidden?: boolean;
   /** Outline level (grouping) */
   outlineLevel?: number;
+  /** Whether this outline group is collapsed */
+  collapsed?: boolean;
 }
 
 // ── Merge Range ────────────────────────────────────────────────────
@@ -499,6 +501,8 @@ export interface RowDef {
   hidden?: boolean;
   /** Outline level (grouping) */
   outlineLevel?: number;
+  /** Whether this outline group is collapsed */
+  collapsed?: boolean;
 }
 
 // ── Sheet ──────────────────────────────────────────────────────────
@@ -531,6 +535,8 @@ export interface Sheet {
   rowBreaks?: number[];
   /** Column page breaks (0-based column indices) */
   colBreaks?: number[];
+  /** Outline properties (controls summary row/column position) */
+  outlineProperties?: OutlineProperties;
 }
 
 // ── Workbook Properties ────────────────────────────────────────────
@@ -584,6 +590,8 @@ export interface ReadOptions {
   password?: string;
   /** Maximum number of data rows to read per sheet. Default: unlimited */
   maxRows?: number;
+  /** Cell range to read (e.g. "A1:D10"). Only cells within this range are returned. */
+  range?: string;
 }
 
 // ── Write Options ──────────────────────────────────────────────────
@@ -628,6 +636,17 @@ export interface WriteSheet {
   colBreaks?: number[];
   /** Row-level properties (keyed by 0-based row index) */
   rowDefs?: Map<number, RowDef>;
+  /** Outline properties (controls summary row/column position) */
+  outlineProperties?: OutlineProperties;
+}
+
+// ── Outline Properties ────────────────────────────────────────────
+
+export interface OutlineProperties {
+  /** Summary rows appear below detail rows. Default: true */
+  summaryBelow?: boolean;
+  /** Summary columns appear to the right of detail columns. Default: true */
+  summaryRight?: boolean;
 }
 
 // ── CSV Options ────────────────────────────────────────────────────

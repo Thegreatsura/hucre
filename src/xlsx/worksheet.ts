@@ -43,6 +43,8 @@ export interface WorksheetContext {
   worksheetRels?: Relationship[];
   /** Maximum number of data rows to parse. Default: unlimited */
   maxRows?: number;
+  /** Cell range filter (e.g. "A1:D10"). Only cells within this range are returned. */
+  range?: string;
 }
 
 // ── Cell Reference Parsing ───────────────────────────────────────────
@@ -109,6 +111,12 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
   let maxRow = -1;
   let hasCells = false;
 
+  // Range filter — parse once, use in cell processing
+  let rangeFilter: MergeRange | undefined;
+  if (ctx.range) {
+    rangeFilter = parseRangeRef(ctx.range);
+  }
+
   // Hyperlinks parsed from <hyperlinks> section
   interface RawHyperlink {
     ref: string;
@@ -165,8 +173,12 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
   let dataRowCount = 0;
   let maxRowsReached = false;
 
-  // Row definitions (height, hidden, outlineLevel)
+  // Row definitions (height, hidden, outlineLevel, collapsed)
   const rowDefs = new Map<number, import("../_types").RowDef>();
+
+  // Column definitions (width, hidden, outlineLevel, collapsed) parsed from <col> elements
+  const columnDefs: import("../_types").ColumnDef[] = [];
+  let inCols = false;
 
   // SAX parsing state
   let inSheetData = false;
@@ -237,6 +249,38 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
       const local = tag.includes(":") ? tag.slice(tag.indexOf(":") + 1) : tag;
 
       switch (local) {
+        case "cols":
+          inCols = true;
+          break;
+        case "col":
+          if (inCols) {
+            const minCol = Number(attrs["min"] || "0");
+            const maxCol2 = Number(attrs["max"] || "0");
+            const width = attrs["width"] ? Number(attrs["width"]) : undefined;
+            const hidden = attrs["hidden"] === "1" || attrs["hidden"] === "true";
+            const outlineLevel = attrs["outlineLevel"] ? Number(attrs["outlineLevel"]) : undefined;
+            const collapsed = attrs["collapsed"] === "1" || attrs["collapsed"] === "true";
+
+            // Expand column range (min and max are 1-based in OOXML)
+            for (let c = minCol; c <= maxCol2; c++) {
+              const idx = c - 1; // Convert to 0-based
+              // Ensure the array is long enough
+              while (columnDefs.length <= idx) {
+                columnDefs.push({});
+              }
+              const def: import("../_types").ColumnDef = {};
+              if (width !== undefined && !Number.isNaN(width)) def.width = width;
+              if (hidden) def.hidden = true;
+              if (outlineLevel !== undefined && !Number.isNaN(outlineLevel) && outlineLevel > 0) {
+                def.outlineLevel = outlineLevel;
+              }
+              if (collapsed) def.collapsed = true;
+              if (Object.keys(def).length > 0) {
+                columnDefs[idx] = def;
+              }
+            }
+          }
+          break;
         case "sheetData":
           inSheetData = true;
           break;
@@ -275,6 +319,14 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
               if (!Number.isNaN(rowNum) && !Number.isNaN(level) && level > 0) {
                 const existing = rowDefs.get(rowNum) ?? {};
                 existing.outlineLevel = level;
+                rowDefs.set(rowNum, existing);
+              }
+            }
+            if (attrs["collapsed"] === "1" || attrs["collapsed"] === "true") {
+              const rowNum = Number(attrs["r"]) - 1;
+              if (!Number.isNaN(rowNum)) {
+                const existing = rowDefs.get(rowNum) ?? {};
+                existing.collapsed = true;
                 rowDefs.set(rowNum, existing);
               }
             }
@@ -612,6 +664,9 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
       const local = tag.includes(":") ? tag.slice(tag.indexOf(":") + 1) : tag;
 
       switch (local) {
+        case "cols":
+          inCols = false;
+          break;
         case "sheetData":
           inSheetData = false;
           break;
@@ -623,28 +678,44 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
           break;
         case "c":
           if (inCell) {
-            processCell(
-              cellRef,
-              cellType,
-              cellStyleIndex,
-              cellValueText,
-              cellFormulaText,
-              inlineText,
-              inlineRichText.length > 0 ? inlineRichText : undefined,
-              ctx,
-              rows,
-              cells,
-              cellFormulaType,
-              cellFormulaSi,
-              cellFormulaRef,
-              cellFormulaCm,
-            );
-            // Track max dimensions
-            if (cellRef) {
+            // Skip cells outside the range filter
+            let skipCell = false;
+            if (rangeFilter && cellRef) {
               const pos = parseCellRef(cellRef);
-              if (pos.col > maxCol) maxCol = pos.col;
-              if (pos.row > maxRow) maxRow = pos.row;
-              hasCells = true;
+              if (
+                pos.row < rangeFilter.startRow ||
+                pos.row > rangeFilter.endRow ||
+                pos.col < rangeFilter.startCol ||
+                pos.col > rangeFilter.endCol
+              ) {
+                skipCell = true;
+              }
+            }
+
+            if (!skipCell) {
+              processCell(
+                cellRef,
+                cellType,
+                cellStyleIndex,
+                cellValueText,
+                cellFormulaText,
+                inlineText,
+                inlineRichText.length > 0 ? inlineRichText : undefined,
+                ctx,
+                rows,
+                cells,
+                cellFormulaType,
+                cellFormulaSi,
+                cellFormulaRef,
+                cellFormulaCm,
+              );
+              // Track max dimensions
+              if (cellRef) {
+                const pos = parseCellRef(cellRef);
+                if (pos.col > maxCol) maxCol = pos.col;
+                if (pos.row > maxRow) maxRow = pos.row;
+                hasCells = true;
+              }
             }
             inCell = false;
           }
@@ -863,6 +934,10 @@ export function parseWorksheet(xml: string, name: string, ctx: WorksheetContext)
 
   if (cells.size > 0) {
     sheet.cells = cells;
+  }
+  // Attach column definitions (width, hidden, outlineLevel, collapsed)
+  if (columnDefs.length > 0 && columnDefs.some((c) => Object.keys(c).length > 0)) {
+    sheet.columns = columnDefs;
   }
   if (merges.length > 0) {
     sheet.merges = merges;

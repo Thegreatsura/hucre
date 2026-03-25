@@ -569,13 +569,18 @@ export async function readOds(input: ReadInput, options?: ReadOptions): Promise<
     });
   }
 
-  // 2. Verify mimetype
-  if (zip.has("mimetype")) {
-    const mimeData = await zip.extract("mimetype");
-    const mime = decodeUtf8(mimeData).trim();
-    if (mime !== "application/vnd.oasis.opendocument.spreadsheet") {
-      throw new ParseError(`Invalid ODS mimetype: ${mime}`);
-    }
+  // 2. Verify mimetype — ODF spec requires it as the first ZIP entry
+  if (!zip.has("mimetype")) {
+    throw new ParseError(
+      "Invalid ODS: missing 'mimetype' entry. The file may not be a valid OpenDocument Spreadsheet.",
+    );
+  }
+  const mimeData = await zip.extract("mimetype");
+  const mime = decodeUtf8(mimeData).trim();
+  if (!mime.startsWith("application/vnd.oasis.opendocument")) {
+    throw new ParseError(
+      `Invalid ODS mimetype: "${mime}". Expected an OpenDocument type starting with "application/vnd.oasis.opendocument".`,
+    );
   }
 
   // 3. Parse content.xml (required)
