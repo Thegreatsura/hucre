@@ -34,6 +34,18 @@ const MIMETYPE = "application/vnd.oasis.opendocument.spreadsheet";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+/**
+ * Format a number for display in <text:p>.
+ * - Integers (including floats with no fractional part like 12.0) → "12"
+ * - Floats → reasonable decimal places, no floating-point artifacts
+ */
+function formatNumberDisplay(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  // Use toPrecision(15) to avoid floating-point artifacts (JS has ~17 significant digits),
+  // then parseFloat to strip trailing zeros
+  return String(parseFloat(value.toPrecision(15)));
+}
+
 function formatOdsDate(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -207,7 +219,7 @@ function cellToOds(value: CellValue, ctx?: CellContext): string {
   if (typeof value === "number") {
     attrs["office:value-type"] = "float";
     attrs["office:value"] = String(value);
-    children.push(xmlElement("text:p", undefined, String(value)));
+    children.push(xmlElement("text:p", undefined, formatNumberDisplay(value)));
     return xmlElement("table:table-cell", attrs, children);
   }
 
@@ -564,6 +576,22 @@ function writeStylesXml(): string {
   );
 }
 
+// ── settings.xml ─────────────────────────────────────────────────────
+
+function writeSettingsXml(): string {
+  const NS_CONFIG = "urn:oasis:names:tc:opendocument:xmlns:config:1.0";
+
+  return xmlDocument(
+    "office:document-settings",
+    {
+      "xmlns:office": NS_OFFICE,
+      "xmlns:config": NS_CONFIG,
+      "office:version": "1.2",
+    },
+    xmlElement("office:settings", undefined, ""),
+  );
+}
+
 // ── manifest.xml ────────────────────────────────────────────────────
 
 function writeManifestXml(): string {
@@ -592,6 +620,12 @@ function writeManifestXml(): string {
   entries.push(
     xmlSelfClose("manifest:file-entry", {
       "manifest:full-path": "styles.xml",
+      "manifest:media-type": "text/xml",
+    }),
+  );
+  entries.push(
+    xmlSelfClose("manifest:file-entry", {
+      "manifest:full-path": "settings.xml",
       "manifest:media-type": "text/xml",
     }),
   );
@@ -629,6 +663,9 @@ export async function writeOds(options: WriteOptions): Promise<WriteOutput> {
 
   // styles.xml — style definitions
   zip.add("styles.xml", encoder.encode(writeStylesXml()));
+
+  // settings.xml — document settings
+  zip.add("settings.xml", encoder.encode(writeSettingsXml()));
 
   return zip.build();
 }

@@ -153,6 +153,18 @@ interface ResolvedCell {
 
 const DEFAULT_DATE_FORMAT = "yyyy-mm-dd";
 
+/** Known Excel error value strings */
+const EXCEL_ERRORS = new Set([
+  "#VALUE!",
+  "#REF!",
+  "#N/A",
+  "#NAME?",
+  "#NULL!",
+  "#DIV/0!",
+  "#NUM!",
+  "#GETTING_DATA",
+]);
+
 // ── Worksheet Writer ───────────────────────────────────────────────
 
 /** Generate xl/worksheets/sheetN.xml along with any hyperlink relationships */
@@ -264,6 +276,13 @@ export function writeWorksheetXml(
 
   // ── SheetFormatPr ──
   parts.push(xmlSelfClose("sheetFormatPr", { defaultRowHeight: 15 }));
+
+  // ── Dimension ──
+  if (rowCount > 0 || maxCols > 0) {
+    const endRow = rowCount > 0 ? rowCount - 1 : 0;
+    const endCol = maxCols > 0 ? maxCols - 1 : 0;
+    parts.push(xmlSelfClose("dimension", { ref: rangeRef(0, 0, endRow, endCol) }));
+  }
 
   // ── Columns ──
   if (sheet.columns && sheet.columns.length > 0) {
@@ -392,6 +411,11 @@ export function writeWorksheetXml(
   const { xml: hyperlinksXml, relationships: hyperlinkRelationships } = collectHyperlinks(sheet);
   if (hyperlinksXml) {
     parts.push(hyperlinksXml);
+  }
+
+  // ── Print Options (only when pageSetup exists) ──
+  if (sheet.pageSetup) {
+    parts.push(xmlSelfClose("printOptions", { headings: 0, gridLines: 0 }));
   }
 
   // ── Page Margins ──
@@ -676,6 +700,13 @@ function serializeCell(
       return xmlSelfClose("c", { r: ref, s: styleIdx });
     }
     return null;
+  }
+
+  // Error value (e.g. #VALUE!, #REF!, #N/A, #NAME?, #NULL!, #DIV/0!, #NUM!)
+  if (typeof value === "string" && EXCEL_ERRORS.has(value)) {
+    const attrs: Record<string, string | number> = { r: ref, t: "e" };
+    if (styleIdx !== 0) attrs["s"] = styleIdx;
+    return xmlElement("c", attrs, [xmlElement("v", undefined, value)]);
   }
 
   // String value

@@ -63,6 +63,7 @@ export {
   removeSheet,
   findCells,
   replaceCells,
+  sortRows,
 } from "./sheet-ops";
 
 // ── Web Worker Helpers ───────────────────────────────────────────

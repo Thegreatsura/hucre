@@ -88,9 +88,14 @@ export function writeCsvObjects(
 ): string {
   const opts = normalizeWriteOptions(options);
 
+  // If columns option is provided, use it as the column order
+  const explicitColumns = options?.columns;
+
   // Determine headers
   let headers: string[];
-  if (Array.isArray(opts.headers)) {
+  if (explicitColumns) {
+    headers = explicitColumns;
+  } else if (Array.isArray(opts.headers)) {
     headers = opts.headers;
   } else if (opts.headers === true || opts.headers === undefined) {
     // Auto-detect from first object's keys

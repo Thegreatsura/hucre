@@ -61,6 +61,30 @@ export function parseCsv(input: string, options?: CsvReadOptions): CellValue[][]
     input = stripBom(input);
   }
 
+  // Skip the first N lines before parsing
+  const skipLines = options?.skipLines;
+  if (skipLines && skipLines > 0) {
+    let linesSkipped = 0;
+    let pos = 0;
+    while (linesSkipped < skipLines && pos < input.length) {
+      const ch = input[pos]!;
+      if (ch === "\r") {
+        linesSkipped++;
+        if (pos + 1 < input.length && input[pos + 1] === "\n") {
+          pos += 2;
+        } else {
+          pos++;
+        }
+      } else if (ch === "\n") {
+        linesSkipped++;
+        pos++;
+      } else {
+        pos++;
+      }
+    }
+    input = input.slice(pos);
+  }
+
   if (input.length === 0) return [];
 
   const delimiter = opts.delimiter ?? detectDelimiter(input);

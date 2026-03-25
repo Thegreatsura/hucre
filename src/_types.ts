@@ -659,6 +659,8 @@ export interface CsvReadOptions {
   comment?: string;
   /** Maximum number of data rows to parse. When set, parsing stops after this many rows. */
   maxRows?: number;
+  /** Skip the first N lines before parsing (useful for files with metadata headers above the CSV data). */
+  skipLines?: number;
 }
 
 export interface CsvWriteOptions {
@@ -680,6 +682,8 @@ export interface CsvWriteOptions {
   nullValue?: string;
   /** Escape formula injection by prefixing cells starting with =, +, -, @, \t, \r with a single quote. Default: false */
   escapeFormulae?: boolean;
+  /** Column keys to include (for writeCsvObjects). When provided, only these columns are output in this order. */
+  columns?: string[];
 }
 
 // ── Schema Validation ──────────────────────────────────────────────

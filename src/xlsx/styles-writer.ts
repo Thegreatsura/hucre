@@ -36,11 +36,12 @@ function serializeColor(tagName: string, color: Color): string {
 }
 
 function serializeFont(font: FontStyle): string {
+  // ECMA-376 requires this element order:
+  // b, i, u, strike, condense, extend, outline, shadow, charset, family, scheme, color, sz, name, vertAlign
   const children: string[] = [];
 
   if (font.bold) children.push(xmlSelfClose("b"));
   if (font.italic) children.push(xmlSelfClose("i"));
-  if (font.strikethrough) children.push(xmlSelfClose("strike"));
 
   if (font.underline !== undefined && font.underline !== false) {
     if (font.underline === true || font.underline === "single") {
@@ -50,32 +51,36 @@ function serializeFont(font: FontStyle): string {
     }
   }
 
-  if (font.vertAlign) {
-    children.push(xmlSelfClose("vertAlign", { val: font.vertAlign }));
-  }
+  if (font.strikethrough) children.push(xmlSelfClose("strike"));
 
-  if (font.size !== undefined) {
-    children.push(xmlSelfClose("sz", { val: font.size }));
-  }
+  // condense, extend, outline, shadow — not currently modeled
 
-  if (font.color) {
-    children.push(serializeColor("color", font.color));
-  }
-
-  if (font.name) {
-    children.push(xmlSelfClose("name", { val: font.name }));
+  if (font.charset !== undefined) {
+    children.push(xmlSelfClose("charset", { val: font.charset }));
   }
 
   if (font.family !== undefined) {
     children.push(xmlSelfClose("family", { val: font.family }));
   }
 
-  if (font.charset !== undefined) {
-    children.push(xmlSelfClose("charset", { val: font.charset }));
-  }
-
   if (font.scheme) {
     children.push(xmlSelfClose("scheme", { val: font.scheme }));
+  }
+
+  if (font.color) {
+    children.push(serializeColor("color", font.color));
+  }
+
+  if (font.size !== undefined) {
+    children.push(xmlSelfClose("sz", { val: font.size }));
+  }
+
+  if (font.name) {
+    children.push(xmlSelfClose("name", { val: font.name }));
+  }
+
+  if (font.vertAlign) {
+    children.push(xmlSelfClose("vertAlign", { val: font.vertAlign }));
   }
 
   return xmlElement("font", undefined, children);

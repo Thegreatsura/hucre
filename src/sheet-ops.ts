@@ -1232,3 +1232,52 @@ export function replaceCells(sheet: Sheet, find: CellValue | RegExp, replace: Ce
 
   return count;
 }
+
+// ── Sort Rows ────────────────────────────────────────────────────────
+
+/**
+ * Sort sheet rows by the values in a given column.
+ * Handles mixed types: nulls last, numbers < strings < booleans.
+ *
+ * @param sheet - The sheet to sort (mutated in place)
+ * @param colIndex - 0-based column index to sort by
+ * @param order - Sort order: "asc" (default) or "desc"
+ */
+export function sortRows(sheet: Sheet, colIndex: number, order?: "asc" | "desc"): void {
+  const desc = order === "desc";
+
+  sheet.rows.sort((a, b) => {
+    const va = colIndex < a.length ? (a[colIndex] ?? null) : null;
+    const vb = colIndex < b.length ? (b[colIndex] ?? null) : null;
+    const cmp = compareCellValues(va, vb);
+    return desc ? -cmp : cmp;
+  });
+}
+
+/** Compare two cell values for sorting: nulls last, numbers < strings < booleans. */
+function compareCellValues(a: CellValue, b: CellValue): number {
+  // Nulls last
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+
+  const ta = typeRank(a);
+  const tb = typeRank(b);
+  if (ta !== tb) return ta - tb;
+
+  // Same type
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  if (typeof a === "string" && typeof b === "string") return a.localeCompare(b);
+  if (typeof a === "boolean" && typeof b === "boolean") return (a ? 1 : 0) - (b ? 1 : 0);
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  return 0;
+}
+
+function typeRank(v: CellValue): number {
+  if (v === null) return 4;
+  if (typeof v === "number") return 0;
+  if (v instanceof Date) return 1;
+  if (typeof v === "string") return 2;
+  if (typeof v === "boolean") return 3;
+  return 4;
+}

@@ -57,6 +57,9 @@ export function xmlEscapeAttr(text: string): string {
       case 34: // "
         replacement = "&quot;";
         break;
+      case 39: // '
+        replacement = "&apos;";
+        break;
       case 9: // tab
         replacement = "&#9;";
         break;
