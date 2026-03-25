@@ -118,7 +118,7 @@ const buffer = await writeXlsx({
 });
 ```
 
-Features: cell styles, auto column widths, merged cells, freeze panes, auto-filter, data validation, hyperlinks, images, comments, tables, conditional formatting, named ranges, print settings, sheet protection, rich text, number formats, formulas, hidden sheets.
+Features: cell styles, auto column widths, merged cells, freeze panes, auto-filter, data validation, hyperlinks, images, comments, tables, conditional formatting, named ranges, print settings, page breaks, sheet protection, rich text, shared/array formulas, number formats, hidden sheets, HTML/Markdown export.
 
 ### Auto Column Width
 
@@ -289,6 +289,46 @@ const copy = cloneSheet(sheet, "Copy"); // Deep clone
 moveSheet(workbook, 0, 2); // Reorder sheets
 ```
 
+### HTML & Markdown Export
+
+```ts
+import { toHtml, toMarkdown } from "hucre";
+
+const html = toHtml(workbook.sheets[0], {
+  headerRow: true,
+  styles: true,
+  classes: true,
+});
+
+const md = toMarkdown(workbook.sheets[0]);
+// | Name   | Price  | Stock |
+// |--------|-------:|------:|
+// | Widget |   9.99 |   142 |
+```
+
+### Number Format Renderer
+
+```ts
+import { formatValue } from "hucre";
+
+formatValue(1234.5, "#,##0.00"); // "1,234.50"
+formatValue(0.15, "0%"); // "15%"
+formatValue(44197, "yyyy-mm-dd"); // "2021-01-01"
+formatValue(1234, "$#,##0"); // "$1,234"
+formatValue(0.333, "# ?/?"); // "1/3"
+```
+
+### Cell Utilities
+
+```ts
+import { parseCellRef, cellRef, colToLetter, rangeRef } from "hucre";
+
+parseCellRef("AA15"); // { row: 14, col: 26 }
+cellRef(14, 26); // "AA15"
+colToLetter(26); // "AA"
+rangeRef(0, 0, 9, 3); // "A1:D10"
+```
+
 ### CSV
 
 ```ts
@@ -393,10 +433,12 @@ hucre (~37 KB gzipped)
 │   └── auto-width  Font-aware column width calculation
 ├── ods/            OpenDocument Spreadsheet read/write
 ├── csv/            RFC 4180 parser/writer + streaming
-├── hucre          Unified read/write API, format auto-detect
-├── sheet-ops       Insert/delete/move rows+cols, clone, copy
+├── export/         HTML table + Markdown table output
+├── hucre           Unified read/write API, format auto-detect
+├── sheet-ops       Insert/delete/move rows+cols, clone, copy, range
 ├── worker          Web Worker serialization helpers
 ├── _date           Timezone-safe serial ↔ Date, Lotus bug, 1900/1904
+├── _format         Number format renderer (formatValue)
 ├── _schema         Schema validation, type coercion, error collection
 └── cli             Convert, inspect, validate (citty + consola)
 ```
@@ -459,21 +501,27 @@ Zero dependencies. Pure TypeScript. The ZIP engine uses `CompressionStream`/`Dec
 | `moveSheet(wb, from, to)`               | Reorder sheets               |
 | `removeSheet(wb, index)`                | Remove a sheet               |
 
-### Schema & Validation
+### Export
 
-| Function                                     | Description                        |
-| -------------------------------------------- | ---------------------------------- |
-| `validateWithSchema(rows, schema, options?)` | Validate & coerce data with schema |
+| Function                      | Description                                        |
+| ----------------------------- | -------------------------------------------------- |
+| `toHtml(sheet, options?)`     | Export sheet as HTML `<table>` with styles/classes |
+| `toMarkdown(sheet, options?)` | Export sheet as Markdown table                     |
 
-### Date Utilities
+### Formatting & Utilities
 
-| Function                        | Description                          |
-| ------------------------------- | ------------------------------------ |
-| `serialToDate(serial, is1904?)` | Excel serial → Date (UTC)            |
-| `dateToSerial(date, is1904?)`   | Date → Excel serial                  |
-| `isDateFormat(numFmt)`          | Check if format string is date       |
-| `formatDate(date, format)`      | Format Date with Excel format string |
-| `parseDate(value)`              | Parse date string → Date or null     |
+| Function                                     | Description                                 |
+| -------------------------------------------- | ------------------------------------------- |
+| `formatValue(value, numFmt)`                 | Apply Excel number format to value → string |
+| `validateWithSchema(rows, schema, options?)` | Validate & coerce data with schema          |
+| `serialToDate(serial, is1904?)`              | Excel serial → Date (UTC)                   |
+| `dateToSerial(date, is1904?)`                | Date → Excel serial                         |
+| `isDateFormat(numFmt)`                       | Check if format string is date              |
+| `formatDate(date, format)`                   | Format Date with Excel format string        |
+| `parseCellRef(ref)`                          | "AA15" → `{ row: 14, col: 26 }`             |
+| `cellRef(row, col)`                          | `(14, 26)` → "AA15"                         |
+| `colToLetter(col)`                           | `26` → "AA"                                 |
+| `rangeRef(r1, c1, r2, c2)`                   | `(0,0,9,3)` → "A1:D10"                      |
 
 ### Web Worker Helpers
 
@@ -498,7 +546,7 @@ pnpm typecheck    # tsgo
 
 Contributions are welcome! Please [open an issue](https://github.com/productdevbook/hucre/issues) or submit a PR.
 
-35 of 39 planned features are implemented. See the [issue tracker](https://github.com/productdevbook/hucre/issues) for remaining items (XLS BIFF, encryption, charts, pivot tables).
+47 of 55 planned features are implemented. See the [issue tracker](https://github.com/productdevbook/hucre/issues) for remaining items (XLS BIFF, encryption, charts, pivot tables, sparklines).
 
 ## License
 
