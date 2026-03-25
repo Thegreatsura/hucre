@@ -341,25 +341,27 @@ Sensor,45.99,SNS-005,64,unknown</textarea
 
       <!-- ═══════ EXPORT ═══════ -->
       <section class="panel" data-panel="export">
-        <p class="panel-desc">
-          Export spreadsheet data as HTML table or Markdown. Try editing the data and clicking
-          export.
-        </p>
+        <p class="panel-desc">Convert XLSX, CSV, or ODS files to HTML table or Markdown format.</p>
         <div class="split">
           <div class="controls">
-            <div class="field full">
-              <label for="export-data">Data (JSON)</label>
-              <textarea id="export-data" rows="10" spellcheck="false">
-[
-  ["Product", "Price", "Stock", "Active"],
-  ["Widget", 9.99, 142, true],
-  ["Gadget", 24.50, 87, true],
-  ["Bolt", 0.75, 3420, false],
-  ["Cable", 12.00, 256, true],
-  ["Sensor", 45.99, 64, true]
-]</textarea
+            <div class="drop-zone" id="export-drop">
+              <div class="icon">📂</div>
+              <p>Drop .xlsx, .csv, or .ods file</p>
+              <input type="file" id="export-file" accept=".xlsx,.csv,.ods" />
+            </div>
+
+            <div class="field full" style="margin-top: 0.75rem">
+              <label for="export-csv">Or paste CSV</label>
+              <textarea id="export-csv" rows="8" spellcheck="false">
+Product,Price,Stock,Active
+Widget,9.99,142,true
+Gadget,24.50,87,true
+"Bolt, Standard",0.75,3420,false
+Cable,12.00,256,true
+Sensor,45.99,64,true</textarea
               >
             </div>
+
             <details class="section" open>
               <summary>Options</summary>
               <div class="field-grid">
@@ -370,7 +372,7 @@ Sensor,45.99,SNS-005,64,unknown</textarea
                 </div>
                 <div class="field">
                   <label>
-                    <input id="export-styles" type="checkbox" /> Include Styles (HTML)
+                    <input id="export-styles" type="checkbox" checked /> Include Styles (HTML)
                   </label>
                 </div>
               </div>
@@ -379,12 +381,12 @@ Sensor,45.99,SNS-005,64,unknown</textarea
           <div class="preview">
             <div class="output" id="export-output">
               <p style="color: var(--text-dim); text-align: center; padding: 3rem 0">
-                Click "HTML" or "Markdown" to export
+                Drop a file or paste CSV, then click "HTML" or "Markdown"
               </p>
             </div>
             <div class="actions">
-              <button class="btn primary" id="export-html">Export HTML</button>
-              <button class="btn primary" id="export-md">Export Markdown</button>
+              <button class="btn primary" id="export-html">HTML</button>
+              <button class="btn primary" id="export-md">Markdown</button>
               <button class="btn" id="export-copy" disabled>Copy</button>
             </div>
           </div>

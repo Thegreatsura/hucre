@@ -609,18 +609,81 @@ function setupOds() {
 // ── Export (HTML / Markdown) ───────────────────────────────────────
 
 let lastExportText = "";
+let exportSheet: Sheet | null = null;
 
-function setupExport() {
-  function getExportSheet(): Sheet {
-    const rawData = JSON.parse(($("export-data") as HTMLTextAreaElement).value);
-    const rows: CellValue[][] = rawData;
-    return { name: "Export", rows };
+async function loadExportSheet(): Promise<Sheet> {
+  // If a file was loaded, use that
+  if (exportSheet) return exportSheet;
+
+  // Otherwise parse the CSV textarea
+  const csvText = ($("export-csv") as HTMLTextAreaElement).value;
+  if (!csvText.trim()) throw new Error("No data — drop a file or paste CSV");
+  const rows = parseCsv(csvText, { typeInference: true });
+  return { name: "Export", rows };
+}
+
+async function handleExportFile(file: File) {
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const ext = file.name.split(".").pop()?.toLowerCase();
+
+  if (ext === "xlsx") {
+    const wb = await readXlsx(buffer);
+    exportSheet = wb.sheets[0];
+  } else if (ext === "ods") {
+    const wb = await readOds(buffer);
+    exportSheet = wb.sheets[0];
+  } else if (ext === "csv" || ext === "tsv" || ext === "txt") {
+    const text = new TextDecoder().decode(buffer);
+    ($("export-csv") as HTMLTextAreaElement).value = text;
+    exportSheet = null; // use CSV path
+  } else {
+    throw new Error(`Unsupported format: .${ext}`);
   }
 
-  $("export-html").addEventListener("click", () => {
+  toast(`Loaded ${file.name}`);
+}
+
+function setupExport() {
+  const drop = $("export-drop");
+  const fileInput = $("export-file") as HTMLInputElement;
+
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    drop.classList.add("drag-over");
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("drag-over"));
+  drop.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    drop.classList.remove("drag-over");
+    const file = (e as DragEvent).dataTransfer?.files[0];
+    if (file) {
+      try {
+        await handleExportFile(file);
+      } catch (err: unknown) {
+        $("export-output").innerHTML = `<p class="error">${escapeHtml(String(err))}</p>`;
+      }
+    }
+  });
+  fileInput.addEventListener("change", async () => {
+    if (fileInput.files?.[0]) {
+      try {
+        await handleExportFile(fileInput.files[0]);
+      } catch (err: unknown) {
+        $("export-output").innerHTML = `<p class="error">${escapeHtml(String(err))}</p>`;
+      }
+    }
+  });
+
+  // Reset file sheet when CSV is edited
+  ($("export-csv") as HTMLTextAreaElement).addEventListener("input", () => {
+    exportSheet = null;
+  });
+
+  $("export-html").addEventListener("click", async () => {
     const output = $("export-output");
     try {
-      const sheet = getExportSheet();
+      const sheet = await loadExportSheet();
       const headerRow = ($("export-header") as HTMLInputElement).checked;
       const styles = ($("export-styles") as HTMLInputElement).checked;
       const html = toHtml(sheet, { headerRow, styles, classes: true, includeStyleTag: true });
@@ -633,10 +696,10 @@ function setupExport() {
     }
   });
 
-  $("export-md").addEventListener("click", () => {
+  $("export-md").addEventListener("click", async () => {
     const output = $("export-output");
     try {
-      const sheet = getExportSheet();
+      const sheet = await loadExportSheet();
       const headerRow = ($("export-header") as HTMLInputElement).checked;
       const md = toMarkdown(sheet, { headerRow });
       lastExportText = md;
