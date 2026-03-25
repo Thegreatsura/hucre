@@ -14,9 +14,10 @@ describe("CSV preserveLeadingZeros", () => {
     expect(typeof result[0]![0]).toBe("number");
   });
 
-  it('"0" should become boolean false (always, regardless of preserveLeadingZeros)', () => {
+  it('"0" should become number 0 (not boolean false)', () => {
     const result = parseCsv("0", { typeInference: true, preserveLeadingZeros: true });
-    expect(result[0]![0]).toBe(false);
+    expect(result[0]![0]).toBe(0);
+    expect(typeof result[0]![0]).toBe("number");
   });
 
   it('"0.5" should become number 0.5 (always)', () => {

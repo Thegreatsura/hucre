@@ -137,7 +137,7 @@ interface NormalizedWriteOptions {
 function normalizeWriteOptions(options?: CsvWriteOptions): NormalizedWriteOptions {
   return {
     delimiter: options?.delimiter ?? ",",
-    lineSeparator: options?.lineSeparator ?? "\n",
+    lineSeparator: options?.lineSeparator ?? "\r\n",
     quote: options?.quote ?? '"',
     quoteStyle: options?.quoteStyle ?? "required",
     headers: options?.headers,

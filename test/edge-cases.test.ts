@@ -509,8 +509,8 @@ describe("CSV Edge Cases", () => {
     // "0123" has leading zero so should NOT be parsed as number 123
     // But the current implementation may convert it. Let's check.
     expect(rows).toHaveLength(4);
-    // "0" by itself is treated as boolean false with typeInference
-    expect(rows[3][0]).toBe(false);
+    // "0" by itself is treated as number 0 with typeInference
+    expect(rows[3][0]).toBe(0);
   });
 
   it("type inference: scientific notation", () => {

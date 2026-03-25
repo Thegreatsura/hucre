@@ -214,7 +214,8 @@ describe("ODS Writer", () => {
   });
 
   it("writes date cells with office:date-value attribute in ISO 8601 format", async () => {
-    const date = new Date(2026, 2, 24, 10, 30, 0); // March 24, 2026
+    // Use UTC date to ensure consistent behavior across timezones
+    const date = new Date(Date.UTC(2026, 2, 24, 10, 30, 0)); // March 24, 2026 10:30 UTC
     const data = await writeOds({
       sheets: [{ name: "Sheet1", rows: [[date]] }],
     });

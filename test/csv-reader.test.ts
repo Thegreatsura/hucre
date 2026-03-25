@@ -300,9 +300,9 @@ describe("parseCsv", () => {
     expect(result).toEqual([[true, false]]);
   });
 
-  it("should infer booleans: 1/0", () => {
+  it("should infer 1/0 as numbers (not booleans)", () => {
     const result = parseCsv("1,0", { typeInference: true });
-    expect(result).toEqual([[true, false]]);
+    expect(result).toEqual([[1, 0]]);
   });
 
   it("should infer ISO 8601 dates", () => {

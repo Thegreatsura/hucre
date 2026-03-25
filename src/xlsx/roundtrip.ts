@@ -122,7 +122,7 @@ export async function openXlsx(
  * Write a RoundtripWorkbook back to XLSX, preserving unmodified parts.
  */
 export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array> {
-  const { sheets, properties, namedRanges, dateSystem, defaultFont } = workbook;
+  const { sheets, properties, namedRanges, dateSystem, defaultFont, activeSheet } = workbook;
 
   // Convert Sheet[] to WriteSheet[] for the writer infrastructure
   const writeSheets: WriteSheet[] = sheets.map((sheet) => ({
@@ -325,7 +325,12 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
   zip.add(
     "xl/workbook.xml",
     encoder.encode(
-      writeWorkbookXml(writeSheets, allNamedRanges.length > 0 ? allNamedRanges : undefined),
+      writeWorkbookXml(
+        writeSheets,
+        allNamedRanges.length > 0 ? allNamedRanges : undefined,
+        dateSystem,
+        activeSheet,
+      ),
     ),
   );
 

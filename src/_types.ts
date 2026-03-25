@@ -592,6 +592,8 @@ export interface WriteOptions {
   namedRanges?: NamedRange[];
   defaultFont?: FontStyle;
   dateSystem?: "1900" | "1904";
+  /** Active sheet index (0-based). Default: 0 */
+  activeSheet?: number;
 }
 
 export interface WriteSheet {
@@ -656,7 +658,7 @@ export interface CsvReadOptions {
 export interface CsvWriteOptions {
   /** Field delimiter. Default: "," */
   delimiter?: string;
-  /** Line separator. Default: "\n" */
+  /** Line separator. Default: "\r\n" (CRLF per RFC 4180) */
   lineSeparator?: string;
   /** Quote character. Default: " */
   quote?: string;

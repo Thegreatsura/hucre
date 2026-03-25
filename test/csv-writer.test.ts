@@ -45,12 +45,12 @@ describe("formatCsvValue", () => {
 describe("writeCsv", () => {
   // ── Basic writing ──────────────────────────────────────────────
 
-  it("should write simple array to CSV", () => {
+  it("should write simple array to CSV with CRLF (RFC 4180 default)", () => {
     const result = writeCsv([
       ["a", "b", "c"],
       [1, 2, 3],
     ]);
-    expect(result).toBe("a,b,c\n1,2,3");
+    expect(result).toBe("a,b,c\r\n1,2,3");
   });
 
   it("should return empty string for empty array", () => {
@@ -103,20 +103,20 @@ describe("writeCsv", () => {
       ],
       { delimiter: ";" },
     );
-    expect(result).toBe("a;b;c\n1;2;3");
+    expect(result).toBe("a;b;c\r\n1;2;3");
   });
 
   // ── Custom line separator ──────────────────────────────────────
 
-  it("should use custom line separator (\\r\\n)", () => {
+  it("should use custom line separator (LF)", () => {
     const result = writeCsv(
       [
         ["a", "b"],
         [1, 2],
       ],
-      { lineSeparator: "\r\n" },
+      { lineSeparator: "\n" },
     );
-    expect(result).toBe("a,b\r\n1,2");
+    expect(result).toBe("a,b\n1,2");
   });
 
   // ── BOM ────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ describe("writeCsv", () => {
       ],
       { headers: ["a", "b"] },
     );
-    expect(result).toBe("a,b\n1,2\n3,4");
+    expect(result).toBe("a,b\r\n1,2\r\n3,4");
   });
 
   // ── Unicode content ────────────────────────────────────────────
@@ -198,7 +198,7 @@ describe("writeCsv", () => {
       ["名前", "年齢"],
       ["太郎", 25],
     ]);
-    expect(result).toBe("名前,年齢\n太郎,25");
+    expect(result).toBe("名前,年齢\r\n太郎,25");
   });
 
   it("should handle emoji content", () => {
@@ -213,7 +213,7 @@ describe("writeCsvObjects", () => {
       { name: "Alice", age: 30 },
       { name: "Bob", age: 25 },
     ]);
-    expect(result).toBe("name,age\nAlice,30\nBob,25");
+    expect(result).toBe("name,age\r\nAlice,30\r\nBob,25");
   });
 
   it("should write objects with explicit headers", () => {
@@ -224,19 +224,19 @@ describe("writeCsvObjects", () => {
       ],
       { headers: ["age", "name"] },
     );
-    expect(result).toBe("age,name\n30,Alice\n25,Bob");
+    expect(result).toBe("age,name\r\n30,Alice\r\n25,Bob");
   });
 
   it("should write objects with column ordering via headers", () => {
     const result = writeCsvObjects([{ z: 1, a: 2, m: 3 }], { headers: ["a", "m", "z"] });
-    expect(result).toBe("a,m,z\n2,3,1");
+    expect(result).toBe("a,m,z\r\n2,3,1");
   });
 
   it("should handle missing keys as null", () => {
     const result = writeCsvObjects([{ name: "Alice" } as Record<string, CellValue>], {
       headers: ["name", "age"],
     });
-    expect(result).toBe("name,age\nAlice,");
+    expect(result).toBe("name,age\r\nAlice,");
   });
 
   it("should return empty string for empty data array", () => {
@@ -256,7 +256,7 @@ describe("writeCsvObjects", () => {
       ],
       { headers: false },
     );
-    expect(result).toBe("Alice,30\nBob,25");
+    expect(result).toBe("Alice,30\r\nBob,25");
   });
 });
 

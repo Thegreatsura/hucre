@@ -193,9 +193,16 @@ export class XlsxStreamWriter {
         "r:id": "rId1",
       }),
     ];
-    const workbookXml = xmlDocument("workbook", { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R }, [
-      xmlElement("sheets", undefined, sheetElements),
-    ]);
+    const workbookParts: string[] = [];
+    if (this.dateSystem === "1904") {
+      workbookParts.push(xmlSelfClose("workbookPr", { date1904: 1 }));
+    }
+    workbookParts.push(xmlElement("sheets", undefined, sheetElements));
+    const workbookXml = xmlDocument(
+      "workbook",
+      { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R },
+      workbookParts,
+    );
 
     // Build ZIP archive
     const zip = new ZipWriter();

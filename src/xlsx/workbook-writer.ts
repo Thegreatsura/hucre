@@ -19,7 +19,12 @@ const REL_WORKBOOK =
 const NS_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
 /** Generate xl/workbook.xml */
-export function writeWorkbookXml(sheets: WriteSheet[], namedRanges?: NamedRange[]): string {
+export function writeWorkbookXml(
+  sheets: WriteSheet[],
+  namedRanges?: NamedRange[],
+  dateSystem?: "1900" | "1904",
+  activeSheet?: number,
+): string {
   const sheetElements: string[] = [];
 
   for (let i = 0; i < sheets.length; i++) {
@@ -38,6 +43,26 @@ export function writeWorkbookXml(sheets: WriteSheet[], namedRanges?: NamedRange[
   }
 
   const parts: string[] = [];
+
+  // workbookPr with date1904 attribute when using 1904 date system
+  if (dateSystem === "1904") {
+    parts.push(xmlSelfClose("workbookPr", { date1904: 1 }));
+  }
+
+  // bookViews — tells Excel which sheet tab is active
+  const activeTab = activeSheet ?? 0;
+  parts.push(
+    xmlElement("bookViews", undefined, [
+      xmlSelfClose("workbookView", {
+        xWindow: 0,
+        yWindow: 0,
+        windowWidth: 16384,
+        windowHeight: 8192,
+        activeTab,
+      }),
+    ]),
+  );
+
   parts.push(xmlElement("sheets", undefined, sheetElements));
 
   // ── Defined Names (named ranges + print area/titles) ──

@@ -16,8 +16,6 @@ function inferType(value: string): CellValue {
   const lower = trimmed.toLowerCase();
   if (lower === "true" || lower === "yes") return true;
   if (lower === "false" || lower === "no") return false;
-  if (trimmed === "1" && trimmed.length === 1) return true;
-  if (trimmed === "0" && trimmed.length === 1) return false;
 
   if (ISO_DATE_RE.test(trimmed)) {
     const d = new Date(trimmed);
@@ -204,7 +202,7 @@ export class CsvStreamWriter {
 
   constructor(options?: CsvWriteOptions) {
     this.delimiter = options?.delimiter ?? ",";
-    this.lineSeparator = options?.lineSeparator ?? "\n";
+    this.lineSeparator = options?.lineSeparator ?? "\r\n";
     this.quote = options?.quote ?? '"';
     this.quoteStyle = options?.quoteStyle ?? "required";
     this.bom = options?.bom ?? false;

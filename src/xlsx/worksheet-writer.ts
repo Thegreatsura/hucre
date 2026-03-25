@@ -122,7 +122,14 @@ export function writeSharedStringsXml(sharedStrings: SharedStringsCollector): st
 
   const children: string[] = [];
   for (const str of strings) {
-    children.push(xmlElement("si", undefined, [xmlElement("t", undefined, xmlEscape(str))]));
+    const escaped = xmlEscape(str);
+    const needsPreserve =
+      str.length > 0 &&
+      (str[0] === " " || str[str.length - 1] === " " || str.includes("\n") || str.includes("\t"));
+    const tElement = needsPreserve
+      ? `<t xml:space="preserve">${escaped}</t>`
+      : xmlElement("t", undefined, escaped);
+    children.push(xmlElement("si", undefined, [tElement]));
   }
 
   return xmlDocument("sst", { xmlns: NS_SPREADSHEET, count, uniqueCount: count }, children);

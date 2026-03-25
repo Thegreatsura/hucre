@@ -28,17 +28,18 @@ import { parseThemeColors } from "./theme";
 
 // ── OOXML Relationship Types ─────────────────────────────────────────
 
-const REL_WORKBOOK =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
-const REL_WORKSHEET =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
-const REL_SHARED_STRINGS =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings";
-const REL_STYLES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
-const REL_DRAWING = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
-const REL_IMAGE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
-const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
-const REL_TABLE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
+// Transitional namespace (OOXML 2006/Transitional — most common)
+const NS_TRANSITIONAL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+// Strict namespace (OOXML Strict — Excel 2013+ "Strict Open XML" save mode)
+const NS_STRICT = "http://purl.oclc.org/ooxml/officeDocument/relationships";
+
+/**
+ * Match a relationship type against both Transitional and Strict OOXML namespaces.
+ * Excel 2013+ can save in Strict mode which uses different namespace URIs.
+ */
+function matchesRelType(rel: string, type: string): boolean {
+  return rel === `${NS_TRANSITIONAL}/${type}` || rel === `${NS_STRICT}/${type}`;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
   }
   const rootRelsXml = decodeUtf8(await zip.extract("_rels/.rels"));
   const rootRels = parseRelationships(rootRelsXml);
-  const workbookRel = rootRels.find((r) => r.type === REL_WORKBOOK);
+  const workbookRel = rootRels.find((r) => matchesRelType(r.type, "officeDocument"));
   if (!workbookRel) {
     throw new ParseError("Invalid XLSX: cannot find workbook relationship in _rels/.rels");
   }
@@ -146,7 +147,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
 
   // 6. Parse shared strings if present
   let sharedStrings: SharedString[] = [];
-  const ssRel = workbookRels.find((r) => r.type === REL_SHARED_STRINGS);
+  const ssRel = workbookRels.find((r) => matchesRelType(r.type, "sharedStrings"));
   if (ssRel) {
     const ssPath = resolvePath(workbookDir, ssRel.target);
     if (zip.has(ssPath)) {
@@ -157,7 +158,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
 
   // 7. Parse styles if needed (for date detection or if readStyles is true)
   let parsedStyles: ParsedStyles | null = null;
-  const stylesRel = workbookRels.find((r) => r.type === REL_STYLES);
+  const stylesRel = workbookRels.find((r) => matchesRelType(r.type, "styles"));
   if (stylesRel) {
     const stylesPath = resolvePath(workbookDir, stylesRel.target);
     if (zip.has(stylesPath)) {
@@ -177,7 +178,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
   // 8. Build a map of rId → sheet relationship for worksheet paths
   const sheetRelMap = new Map<string, string>();
   for (const rel of workbookRels) {
-    if (rel.type === REL_WORKSHEET) {
+    if (matchesRelType(rel.type, "worksheet")) {
       sheetRelMap.set(rel.id, resolvePath(workbookDir, rel.target));
     }
   }
@@ -220,7 +221,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
 
     // Extract images from drawing if present
     if (worksheetRels) {
-      const drawingRel = worksheetRels.find((r) => r.type === REL_DRAWING);
+      const drawingRel = worksheetRels.find((r) => matchesRelType(r.type, "drawing"));
       if (drawingRel) {
         const drawingPath = resolvePath(wsDir, drawingRel.target);
         const images = await extractSheetImages(zip, drawingPath);
@@ -232,7 +233,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
 
     // Extract comments if present
     if (worksheetRels) {
-      const commentsRel = worksheetRels.find((r) => r.type === REL_COMMENTS);
+      const commentsRel = worksheetRels.find((r) => matchesRelType(r.type, "comments"));
       if (commentsRel) {
         const commentsPath = resolvePath(wsDir, commentsRel.target);
         if (zip.has(commentsPath)) {
@@ -264,7 +265,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
 
     // Extract tables if present
     if (worksheetRels) {
-      const tableRels = worksheetRels.filter((r) => r.type === REL_TABLE);
+      const tableRels = worksheetRels.filter((r) => matchesRelType(r.type, "table"));
       if (tableRels.length > 0) {
         const tables: TableDefinition[] = [];
         for (const tableRel of tableRels) {
@@ -358,7 +359,7 @@ async function extractSheetImages(zip: ZipReader, drawingPath: string): Promise<
     const drawRelsXml = decodeUtf8(await zip.extract(drawRelsPath));
     const drawRels = parseRelationships(drawRelsXml);
     for (const rel of drawRels) {
-      if (rel.type === REL_IMAGE) {
+      if (matchesRelType(rel.type, "image")) {
         imageRelMap.set(rel.id, resolvePath(drawDir, rel.target));
       }
     }

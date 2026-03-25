@@ -35,7 +35,7 @@ const REL_TABLE = "http://schemas.openxmlformats.org/officeDocument/2006/relatio
  * Returns a Uint8Array containing the ZIP archive.
  */
 export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
-  const { sheets, defaultFont, dateSystem, namedRanges, properties } = options;
+  const { sheets, defaultFont, dateSystem, namedRanges, properties, activeSheet } = options;
 
   // Create shared collectors
   const styles = createStylesCollector(defaultFont);
@@ -150,7 +150,12 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
   zip.add(
     "xl/workbook.xml",
     encoder.encode(
-      writeWorkbookXml(sheets, allNamedRanges.length > 0 ? allNamedRanges : undefined),
+      writeWorkbookXml(
+        sheets,
+        allNamedRanges.length > 0 ? allNamedRanges : undefined,
+        dateSystem,
+        activeSheet,
+      ),
     ),
   );
 

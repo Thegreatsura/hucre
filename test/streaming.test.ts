@@ -571,7 +571,7 @@ describe("CsvStreamWriter", () => {
     writer.addRow(["1", "2", "3"]);
 
     const result = writer.finish();
-    expect(result).toBe("a,b,c\n1,2,3");
+    expect(result).toBe("a,b,c\r\n1,2,3");
   });
 
   it("output matches non-streaming writeCsv", () => {
@@ -602,7 +602,7 @@ describe("CsvStreamWriter", () => {
     writer.addRow(["Bob", 25]);
 
     const result = writer.finish();
-    expect(result).toBe("Name,Age\nAlice,30\nBob,25");
+    expect(result).toBe("Name,Age\r\nAlice,30\r\nBob,25");
   });
 
   it("writes with BOM", () => {
@@ -693,6 +693,6 @@ describe("CsvStreamWriter", () => {
     writer.addRow([1, 2]);
 
     const result = writer.finish();
-    expect(result).toBe("\uFEFFX,Y\n1,2");
+    expect(result).toBe("\uFEFFX,Y\r\n1,2");
   });
 });

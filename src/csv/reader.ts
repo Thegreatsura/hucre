@@ -234,12 +234,6 @@ function inferType(value: CellValue, preserveLeadingZeros: boolean): CellValue {
   const lower = trimmed.toLowerCase();
   if (lower === "true" || lower === "yes") return true;
   if (lower === "false" || lower === "no") return false;
-  if (trimmed === "1" && trimmed.length === 1) {
-    return true;
-  }
-  if (trimmed === "0" && trimmed.length === 1) {
-    return false;
-  }
 
   // ISO 8601 date detection (must come before number to avoid matching partial numbers)
   if (ISO_DATE_RE.test(trimmed)) {
@@ -248,7 +242,7 @@ function inferType(value: CellValue, preserveLeadingZeros: boolean): CellValue {
   }
 
   // Leading-zero preservation: keep strings like "0123", "007", "00" as strings.
-  // Exceptions: "0" (already handled above as boolean), "0.xxx" decimals are still parsed.
+  // Exceptions: "0.xxx" decimals are still parsed.
   if (preserveLeadingZeros && trimmed.length > 1 && trimmed[0] === "0" && trimmed[1] !== ".") {
     return value;
   }

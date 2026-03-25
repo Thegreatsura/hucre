@@ -136,13 +136,13 @@ describe("CSV: type inference precision", () => {
     }
   });
 
-  it("'1' and '0' are converted to booleans with typeInference", () => {
+  it("'1' and '0' are converted to numbers with typeInference", () => {
     const csv = "1\n0";
     const rows = parseCsv(csv, { typeInference: true });
 
-    // The code explicitly converts "1" and "0" to booleans
-    expect(rows[0][0]).toBe(true);
-    expect(rows[1][0]).toBe(false);
+    // "1" and "0" should become numbers, not booleans
+    expect(rows[0][0]).toBe(1);
+    expect(rows[1][0]).toBe(0);
   });
 
   it("'1.0' should be number, not boolean", () => {

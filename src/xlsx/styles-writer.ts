@@ -501,7 +501,14 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
     });
     parts.push(xmlElement("cellXfs", { count: xfs.length }, xfChildren));
 
-    // dxfs (differential formatting for conditional formatting)
+    // cellStyles — required by OOXML validators
+    parts.push(
+      xmlElement("cellStyles", { count: 1 }, [
+        xmlSelfClose("cellStyle", { name: "Normal", xfId: 0, builtinId: 0 }),
+      ]),
+    );
+
+    // dxfs (differential formatting for conditional formatting) — always emit
     if (dxfs.length > 0) {
       const dxfChildren = dxfs.map((style) => {
         const children: string[] = [];
@@ -521,7 +528,18 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
         return xmlElement("dxf", undefined, children);
       });
       parts.push(xmlElement("dxfs", { count: dxfs.length }, dxfChildren));
+    } else {
+      parts.push(xmlSelfClose("dxfs", { count: 0 }));
     }
+
+    // tableStyles — required by OOXML validators when empty
+    parts.push(
+      xmlSelfClose("tableStyles", {
+        count: 0,
+        defaultTableStyle: "TableStyleMedium2",
+        defaultPivotStyle: "PivotStyleLight16",
+      }),
+    );
 
     return xmlDocument("styleSheet", { xmlns: NS_SPREADSHEET }, parts);
   }
