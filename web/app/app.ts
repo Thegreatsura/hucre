@@ -12,6 +12,7 @@ import {
   writeOds,
   toHtml,
   toMarkdown,
+  toJson,
   formatValue,
 } from "hucre";
 import type { CellValue, WriteSheet, SchemaDefinition, Sheet } from "hucre";
@@ -704,6 +705,20 @@ function setupExport() {
       const md = toMarkdown(sheet, { headerRow });
       lastExportText = md;
       output.innerHTML = `<pre style="font-size:0.8rem;line-height:1.6;color:var(--text-muted)">${escapeHtml(md)}</pre>`;
+      ($("export-copy") as HTMLButtonElement).disabled = false;
+    } catch (e: unknown) {
+      output.innerHTML = `<p class="error">${escapeHtml(String(e))}</p>`;
+    }
+  });
+
+  $("export-json").addEventListener("click", async () => {
+    const output = $("export-output");
+    try {
+      const sheet = await loadExportSheet();
+      const headerRow = ($("export-header") as HTMLInputElement).checked;
+      const json = toJson(sheet, { headerRow, format: "objects", pretty: true });
+      lastExportText = json;
+      output.innerHTML = `<pre style="font-size:0.8rem;line-height:1.5;color:var(--text-muted)">${escapeHtml(json)}</pre>`;
       ($("export-copy") as HTMLButtonElement).disabled = false;
     } catch (e: unknown) {
       output.innerHTML = `<p class="error">${escapeHtml(String(e))}</p>`;
