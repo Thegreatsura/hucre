@@ -3,9 +3,7 @@ import { defineConfig } from "vite";
 import { nitro } from "nitro/vite";
 
 export default defineConfig({
-  plugins: [
-    nitro(),
-  ],
+  plugins: [nitro()],
   resolve: {
     alias: {
       hucre: resolve(__dirname, "../src/index.ts"),
