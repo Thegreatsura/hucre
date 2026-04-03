@@ -57,18 +57,43 @@ import { parseCsv, writeCsv } from "hucre/csv"; // CSV only (~2 KB gzipped)
 
 ## Why hucre?
 
-|                   | hucre  | SheetJS       | ExcelJS   | read-excel-file |
-| ----------------- | ------ | ------------- | --------- | --------------- |
-| **Dependencies**  | 0      | 0\*           | 12 (CVEs) | 2               |
-| **Bundle (gzip)** | ~18 KB | ~300 KB       | ~500 KB   | ~40 KB          |
-| **ESM native**    | Yes    | Partial       | No (CJS)  | Yes             |
-| **TypeScript**    | Native | Bolted-on     | Bolted-on | Yes             |
-| **Edge runtime**  | Yes    | No            | No        | No              |
-| **CSP compliant** | Yes    | Yes           | No (eval) | Yes             |
-| **npm published** | Yes    | No (CDN only) | Stale     | Yes             |
-| **Read + Write**  | Yes    | Yes (Pro $)   | Yes       | Separate pkgs   |
+### vs JavaScript / TypeScript Libraries
+
+|                        | hucre      | SheetJS CE    | ExcelJS      | xlsx-js-style |
+| ---------------------- | ---------- | ------------- | ------------ | ------------- |
+| **Dependencies**       | 0          | 0\*           | 12 (CVEs)    | 0\*           |
+| **Bundle (gzip)**      | ~18 KB     | ~300 KB       | ~500 KB      | ~300 KB       |
+| **ESM native**         | Yes        | Partial       | No (CJS)     | Partial       |
+| **TypeScript**         | Native     | Bolted-on     | Bolted-on    | Bolted-on     |
+| **Edge runtime**       | Yes        | No            | No           | No            |
+| **CSP compliant**      | Yes        | Yes           | No (eval)    | Yes           |
+| **npm published**      | Yes        | No (CDN only) | Stale        | Yes           |
+| **Read + Write**       | Yes        | Yes (Pro $)   | Yes          | Yes           |
+| **Styling**            | Yes        | No (Pro $)    | Yes          | Yes           |
+| **Cond. formatting**   | Yes (all)  | No (Pro $)    | Partial      | No            |
+| **Stream read + write**| Yes        | CSV only      | Yes          | CSV only      |
+| **ODS support**        | Yes        | Yes           | No           | Yes           |
+| **Round-trip**         | Yes        | Partial       | Partial      | Partial       |
+| **Sparklines**         | Yes        | No            | No           | No            |
+| **Tables**             | Yes        | Yes           | Yes          | Yes           |
+| **Images**             | Yes        | No (Pro $)    | Yes          | No            |
 
 \* SheetJS removed itself from npm; must install from CDN tarball.
+
+### vs Libraries in Other Languages
+
+|                        | hucre (TS) | openpyxl (Py) | XlsxWriter (Py) | rust_xlsxwriter | Apache POI (Java) |
+| ---------------------- | ---------- | ------------- | ---------------- | --------------- | ----------------- |
+| **Read XLSX**          | Yes        | Yes           | No               | No              | Yes               |
+| **Write XLSX**         | Yes        | Yes           | Yes              | Yes             | Yes               |
+| **Streaming**          | Read+Write | Write-only    | No               | const_memory    | SXSSF (write)     |
+| **Charts**             | Round-trip | 15+ types     | 9 types          | 12+ types       | Limited           |
+| **Pivot tables**       | No         | Read-only     | No               | No              | Limited           |
+| **Cond. formatting**   | Yes (all)  | Yes           | Yes              | Yes             | Yes               |
+| **Sparklines**         | Yes        | No            | Yes              | Yes             | No                |
+| **Formula eval**       | No         | No            | No               | No              | Yes               |
+| **Multi-format**       | XLSX/ODS/CSV | XLSX only  | XLSX only        | XLSX only       | XLS/XLSX          |
+| **Zero dependencies**  | Yes        | lxml optional | No               | Yes             | No                |
 
 ## Features
 
@@ -611,7 +636,25 @@ pnpm typecheck    # tsgo
 
 Contributions are welcome! Please [open an issue](https://github.com/productdevbook/hucre/issues) or submit a PR.
 
-127 of 135 tracked features are implemented. See the [issue tracker](https://github.com/productdevbook/hucre/issues) for the v2 roadmap (XLS BIFF, encryption, charts, pivot tables).
+127 of 135 tracked features are implemented. See the [issue tracker](https://github.com/productdevbook/hucre/issues) for the roadmap.
+
+### Roadmap
+
+**Report Builder** — Enhanced `writeObjects` with column mapping, formula helpers, conditional style rules, summary rows, style presets, column groups, sub-row expansion, Excel table auto-generation, streaming object writes.
+
+**Upcoming Engine Features:**
+- Chart creation (bar, line, pie, scatter, area + subtypes)
+- XLS BIFF8 read (legacy Excel 97-2003)
+- XLSB binary format read
+- Formula evaluation engine
+- File encryption/decryption (AES-256, MS-OFFCRYPTO)
+- Pivot table creation
+- Threaded comments (Excel 365+)
+- Checkboxes (Excel 2024+)
+- VBA/macro injection
+- Slicers & timeline filters
+- R1C1 notation support
+- Accessibility helpers (WCAG 2.1 AA)
 
 ## License
 
