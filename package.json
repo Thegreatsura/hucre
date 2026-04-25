@@ -54,6 +54,10 @@
     "./ods": {
       "types": "./dist/ods.d.mts",
       "default": "./dist/ods.mjs"
+    },
+    "./json": {
+      "types": "./dist/json.d.mts",
+      "default": "./dist/json.mjs"
     }
   },
   "scripts": {

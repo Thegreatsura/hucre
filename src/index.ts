@@ -45,6 +45,27 @@ export {
 } from "./csv/index";
 export { streamCsvRows, CsvStreamWriter } from "./csv/stream";
 
+// ── JSON ───────────────────────────────────────────────────────────
+export {
+  parseJson,
+  parseValue,
+  parseNdjson,
+  writeJson,
+  writeNdjson,
+  workbookToJson,
+  NdjsonStreamWriter,
+  readNdjsonStream,
+} from "./json";
+export type {
+  JsonReadOptions,
+  JsonReadResult,
+  NdjsonReadOptions,
+  JsonWriteOptions,
+  WorkbookToJsonOptions,
+  NdjsonStreamReadOptions,
+  FlattenOptions,
+} from "./json";
+
 // ── Schema Validation ──────────────────────────────────────────────
 export { validateWithSchema } from "./_schema";
 
