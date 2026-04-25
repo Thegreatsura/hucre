@@ -14,11 +14,23 @@ export { streamXlsxRows } from "./xlsx/stream-reader";
 export type { StreamRow } from "./xlsx/stream-reader";
 export { XlsxStreamWriter } from "./xlsx/stream-writer";
 export type { StreamWriterOptions } from "./xlsx/stream-writer";
+export { readXlsxObjects, writeXlsxObjects } from "./xlsx/objects";
+export type {
+  XlsxObjectsReadOptions,
+  XlsxObjectsResult,
+  XlsxObjectsWriteOptions,
+} from "./xlsx/objects";
 
 // ── ODS ────────────────────────────────────────────────────────────
 export { readOds } from "./ods/reader";
 export { writeOds } from "./ods/writer";
 export { streamOdsRows } from "./ods/stream";
+export { readOdsObjects, writeOdsObjects } from "./ods/objects";
+export type {
+  OdsObjectsReadOptions,
+  OdsObjectsResult,
+  OdsObjectsWriteOptions,
+} from "./ods/objects";
 
 // ── CSV ────────────────────────────────────────────────────────────
 export {
