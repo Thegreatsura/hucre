@@ -29,7 +29,27 @@ export interface StreamWriterOptions {
   freezePane?: FreezePane;
   /** Date system. Default: "1900" */
   dateSystem?: "1900" | "1904";
+  /**
+   * When set, rows past this count are written into a new sheet named
+   * `{name}_2`, `{name}_3`, ... (truncated to fit Excel's 31-char limit).
+   *
+   * Defaults to {@link XLSX_MAX_ROWS_PER_SHEET} (1,048,576) — Excel's hard
+   * row limit. Pass an explicit number to roll over earlier (handy for
+   * tests). Pass `Infinity` to disable the rollover.
+   */
+  maxRowsPerSheet?: number;
+  /**
+   * When `true` (default) and the writer is set up with a column header
+   * (either via `columns[].header` or the first call to `addRow`), the
+   * header row is repeated as the first row of every rolled-over sheet.
+   *
+   * Set to `false` to leave new sheets without a header row.
+   */
+  repeatHeaders?: boolean;
 }
+
+/** Excel's hard row limit since Excel 2007 (2^20). */
+export const XLSX_MAX_ROWS_PER_SHEET = 1_048_576;
 
 // ── Default date format ─────────────────────────────────────────────
 
@@ -42,28 +62,62 @@ export class XlsxStreamWriter {
   private columns: ColumnDef[] | undefined;
   private freezePane: FreezePane | undefined;
   private dateSystem: "1900" | "1904";
+  private maxRowsPerSheet: number;
+  private repeatHeaders: boolean;
   private styles = createStylesCollector();
   private sharedStrings = createSharedStrings();
-  private rowXmlFragments: string[] = [];
+  /**
+   * One fragment array per sheet. New sheets are appended when the row
+   * limit is reached.
+   */
+  private sheetFragments: string[][] = [[]];
+  /** Row index within the *current* sheet, NOT the global count. */
+  private currentSheetRowCount = 0;
+  /** Global row count across every sheet — preserves the original semantics. */
   private rowCount = 0;
   private maxCols = 0;
+  /** Captured for `repeatHeaders`. Set when the first row is written. */
+  private headerRowValues: CellValue[] | null = null;
+  /** Was the captured header injected by the constructor (vs. a user call)? */
+  private headerWasFromColumns = false;
 
   constructor(options: StreamWriterOptions) {
     this.sheetName = options.name;
     this.columns = options.columns;
     this.freezePane = options.freezePane;
     this.dateSystem = options.dateSystem ?? "1900";
+    this.maxRowsPerSheet = options.maxRowsPerSheet ?? XLSX_MAX_ROWS_PER_SHEET;
+    this.repeatHeaders = options.repeatHeaders ?? true;
+
+    if (this.maxRowsPerSheet < 2) {
+      throw new Error("maxRowsPerSheet must be at least 2 (one header + one data row)");
+    }
 
     // If columns have headers, write the header row immediately
     if (this.columns && this.columns.some((col) => col.header)) {
       const headerValues: CellValue[] = this.columns.map((col) => col.header ?? col.key ?? null);
+      this.headerRowValues = headerValues.slice();
+      this.headerWasFromColumns = true;
       this.addRow(headerValues);
     }
   }
 
   /** Add a row of values */
   addRow(values: CellValue[]): void {
-    const rowIndex = this.rowCount;
+    // Capture the very first row as a fallback header for repeatHeaders, in
+    // case the caller didn't supply column definitions but does want their
+    // first row repeated when sheets roll over.
+    if (this.rowCount === 0 && !this.headerRowValues) {
+      this.headerRowValues = values.slice();
+    }
+
+    // Roll over before writing this row when the current sheet is full.
+    if (this.currentSheetRowCount >= this.maxRowsPerSheet) {
+      this.rolloverSheet();
+    }
+
+    const rowIndex = this.currentSheetRowCount;
+    this.currentSheetRowCount++;
     this.rowCount++;
 
     if (values.length > this.maxCols) {
@@ -90,7 +144,45 @@ export class XlsxStreamWriter {
     }
 
     if (cellElements.length > 0) {
-      this.rowXmlFragments.push(xmlElement("row", { r: rowIndex + 1 }, cellElements));
+      this.sheetFragments[this.sheetFragments.length - 1]!.push(
+        xmlElement("row", { r: rowIndex + 1 }, cellElements),
+      );
+    }
+  }
+
+  /**
+   * Open a new sheet for the next row. Optionally re-emits the captured
+   * header row at the top of the new sheet.
+   */
+  private rolloverSheet(): void {
+    this.sheetFragments.push([]);
+    this.currentSheetRowCount = 0;
+
+    if (this.repeatHeaders && this.headerRowValues) {
+      // Re-emit the header row at row 0 of the new sheet. We bypass the
+      // public `addRow` to avoid double-counting in `rowCount` and to dodge
+      // the rollover guard at the top.
+      const headerValues = this.headerRowValues;
+      const rowIndex = this.currentSheetRowCount;
+      this.currentSheetRowCount++;
+      const is1904 = this.dateSystem === "1904";
+      const cellElements: string[] = [];
+
+      for (let c = 0; c < headerValues.length; c++) {
+        const value = headerValues[c];
+        const colDef = this.columns?.[c];
+        let style: CellStyle | undefined = colDef?.style;
+        if (colDef?.numFmt && (!style || !style.numFmt)) {
+          style = { ...style, numFmt: colDef.numFmt };
+        }
+        const cellXml = this.serializeCell(rowIndex, c, value, style, is1904);
+        if (cellXml) cellElements.push(cellXml);
+      }
+      if (cellElements.length > 0) {
+        this.sheetFragments[this.sheetFragments.length - 1]!.push(
+          xmlElement("row", { r: rowIndex + 1 }, cellElements),
+        );
+      }
     }
   }
 
@@ -108,9 +200,85 @@ export class XlsxStreamWriter {
   /** Finalize and return the XLSX buffer */
   async finish(): Promise<Uint8Array> {
     const hasSharedStrings = this.sharedStrings.count() > 0;
+    const sheetCount = this.sheetFragments.length;
+    const sheetNames = this.generateSheetNames(sheetCount);
 
-    // Build worksheet XML
-    const worksheetParts: string[] = [];
+    // Build the same view/columns prelude for every emitted sheet.
+    const sheetPrelude = this.buildSheetPrelude();
+
+    // Build ZIP archive
+    const zip = new ZipWriter();
+
+    // [Content_Types].xml
+    zip.add(
+      "[Content_Types].xml",
+      encoder.encode(writeContentTypes({ sheetCount, hasSharedStrings })),
+    );
+
+    // _rels/.rels
+    zip.add("_rels/.rels", encoder.encode(writeRootRels()));
+
+    // xl/_rels/workbook.xml.rels
+    zip.add(
+      "xl/_rels/workbook.xml.rels",
+      encoder.encode(writeWorkbookRels(sheetCount, hasSharedStrings)),
+    );
+
+    // xl/styles.xml
+    zip.add("xl/styles.xml", encoder.encode(this.styles.toXml()));
+
+    // xl/sharedStrings.xml (if any strings)
+    if (hasSharedStrings) {
+      zip.add("xl/sharedStrings.xml", encoder.encode(writeSharedStringsXml(this.sharedStrings)));
+    }
+
+    // xl/worksheets/sheet{N}.xml — one entry per fragment array
+    for (let s = 0; s < sheetCount; s++) {
+      const fragments = this.sheetFragments[s]!;
+      const worksheetParts: string[] = [];
+      worksheetParts.push(...sheetPrelude);
+      worksheetParts.push(
+        xmlElement("sheetData", undefined, fragments.length > 0 ? fragments : ""),
+      );
+      const worksheetXml = xmlDocument(
+        "worksheet",
+        { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R },
+        worksheetParts,
+      );
+      zip.add(`xl/worksheets/sheet${s + 1}.xml`, encoder.encode(worksheetXml));
+    }
+
+    // Build workbook XML
+    const sheetElements: string[] = [];
+    for (let s = 0; s < sheetCount; s++) {
+      sheetElements.push(
+        xmlSelfClose("sheet", {
+          name: sheetNames[s]!,
+          sheetId: s + 1,
+          "r:id": `rId${s + 1}`,
+        }),
+      );
+    }
+    const workbookParts: string[] = [];
+    if (this.dateSystem === "1904") {
+      workbookParts.push(xmlSelfClose("workbookPr", { date1904: 1 }));
+    }
+    workbookParts.push(xmlElement("sheets", undefined, sheetElements));
+    const workbookXml = xmlDocument(
+      "workbook",
+      { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R },
+      workbookParts,
+    );
+
+    // xl/workbook.xml
+    zip.add("xl/workbook.xml", encoder.encode(workbookXml));
+
+    return zip.build();
+  }
+
+  /** Build sheetView + sheetFormatPr + cols (same on every emitted sheet). */
+  private buildSheetPrelude(): string[] {
+    const parts: string[] = [];
 
     // SheetViews (freeze panes)
     const sheetViewParts: string[] = [];
@@ -118,31 +286,18 @@ export class XlsxStreamWriter {
       const fp = this.freezePane;
       const topLeftCell = cellRef(fp.rows ?? 0, fp.columns ?? 0);
       const paneAttrs: Record<string, string | number> = {};
-
-      if (fp.columns && fp.columns > 0) {
-        paneAttrs["xSplit"] = fp.columns;
-      }
-      if (fp.rows && fp.rows > 0) {
-        paneAttrs["ySplit"] = fp.rows;
-      }
+      if (fp.columns && fp.columns > 0) paneAttrs["xSplit"] = fp.columns;
+      if (fp.rows && fp.rows > 0) paneAttrs["ySplit"] = fp.rows;
       paneAttrs["topLeftCell"] = topLeftCell;
       paneAttrs["state"] = "frozen";
-
       const hasXSplit = fp.columns && fp.columns > 0;
       const hasYSplit = fp.rows && fp.rows > 0;
-
-      if (hasXSplit && hasYSplit) {
-        paneAttrs["activePane"] = "bottomRight";
-      } else if (hasXSplit) {
-        paneAttrs["activePane"] = "topRight";
-      } else {
-        paneAttrs["activePane"] = "bottomLeft";
-      }
-
+      if (hasXSplit && hasYSplit) paneAttrs["activePane"] = "bottomRight";
+      else if (hasXSplit) paneAttrs["activePane"] = "topRight";
+      else paneAttrs["activePane"] = "bottomLeft";
       sheetViewParts.push(xmlSelfClose("pane", paneAttrs));
     }
-
-    worksheetParts.push(
+    parts.push(
       xmlElement("sheetViews", undefined, [
         sheetViewParts.length > 0
           ? xmlElement("sheetView", { workbookViewId: 0 }, sheetViewParts)
@@ -151,7 +306,7 @@ export class XlsxStreamWriter {
     );
 
     // SheetFormatPr
-    worksheetParts.push(xmlSelfClose("sheetFormatPr", { defaultRowHeight: 15 }));
+    parts.push(xmlSelfClose("sheetFormatPr", { defaultRowHeight: 15 }));
 
     // Columns
     if (this.columns && this.columns.length > 0) {
@@ -167,84 +322,37 @@ export class XlsxStreamWriter {
             colAttrs["width"] = col.width;
             colAttrs["customWidth"] = true;
           }
-          if (col.hidden) {
-            colAttrs["hidden"] = true;
-          }
-          if (col.outlineLevel) {
-            colAttrs["outlineLevel"] = col.outlineLevel;
-          }
+          if (col.hidden) colAttrs["hidden"] = true;
+          if (col.outlineLevel) colAttrs["outlineLevel"] = col.outlineLevel;
           colElements.push(xmlSelfClose("col", colAttrs));
         }
       }
       if (colElements.length > 0) {
-        worksheetParts.push(xmlElement("cols", undefined, colElements));
+        parts.push(xmlElement("cols", undefined, colElements));
       }
     }
 
-    // Sheet data — all accumulated row XML fragments
-    worksheetParts.push(
-      xmlElement(
-        "sheetData",
-        undefined,
-        this.rowXmlFragments.length > 0 ? this.rowXmlFragments : "",
-      ),
-    );
+    return parts;
+  }
 
-    const worksheetXml = xmlDocument(
-      "worksheet",
-      { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R },
-      worksheetParts,
-    );
-
-    // Build workbook XML
-    const sheetElements = [
-      xmlSelfClose("sheet", {
-        name: this.sheetName,
-        sheetId: 1,
-        "r:id": "rId1",
-      }),
-    ];
-    const workbookParts: string[] = [];
-    if (this.dateSystem === "1904") {
-      workbookParts.push(xmlSelfClose("workbookPr", { date1904: 1 }));
+  /**
+   * Generate `count` unique sheet names: the configured base name first,
+   * then `{name}_2`, `{name}_3`, …. Each name is truncated to fit Excel's
+   * 31-character limit by trimming the base, not the suffix.
+   */
+  private generateSheetNames(count: number): string[] {
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      if (i === 0) {
+        names.push(truncateSheetName(this.sheetName));
+      } else {
+        const suffix = `_${i + 1}`;
+        const room = 31 - suffix.length;
+        const base = this.sheetName.length > room ? this.sheetName.slice(0, room) : this.sheetName;
+        names.push(base + suffix);
+      }
     }
-    workbookParts.push(xmlElement("sheets", undefined, sheetElements));
-    const workbookXml = xmlDocument(
-      "workbook",
-      { xmlns: NS_SPREADSHEET, "xmlns:r": NS_R },
-      workbookParts,
-    );
-
-    // Build ZIP archive
-    const zip = new ZipWriter();
-
-    // [Content_Types].xml
-    zip.add(
-      "[Content_Types].xml",
-      encoder.encode(writeContentTypes({ sheetCount: 1, hasSharedStrings })),
-    );
-
-    // _rels/.rels
-    zip.add("_rels/.rels", encoder.encode(writeRootRels()));
-
-    // xl/workbook.xml
-    zip.add("xl/workbook.xml", encoder.encode(workbookXml));
-
-    // xl/_rels/workbook.xml.rels
-    zip.add("xl/_rels/workbook.xml.rels", encoder.encode(writeWorkbookRels(1, hasSharedStrings)));
-
-    // xl/styles.xml
-    zip.add("xl/styles.xml", encoder.encode(this.styles.toXml()));
-
-    // xl/sharedStrings.xml (if any strings)
-    if (hasSharedStrings) {
-      zip.add("xl/sharedStrings.xml", encoder.encode(writeSharedStringsXml(this.sharedStrings)));
-    }
-
-    // xl/worksheets/sheet1.xml
-    zip.add("xl/worksheets/sheet1.xml", encoder.encode(worksheetXml));
-
-    return zip.build();
+    return names;
   }
 
   // ── Private helpers ───────────────────────────────────────────────
@@ -313,3 +421,8 @@ export class XlsxStreamWriter {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+/** Excel sheet names cap at 31 characters. */
+function truncateSheetName(name: string): string {
+  return name.length > 31 ? name.slice(0, 31) : name;
+}
