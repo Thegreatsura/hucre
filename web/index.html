@@ -6,7 +6,7 @@
     <title>hucre — Spreadsheet Playground</title>
     <meta
       name="description"
-      content="Zero-dependency spreadsheet engine. Read & write XLSX, CSV. Schema validation, streaming, tree-shakeable."
+      content="Zero-dependency spreadsheet engine. Read & write XLSX, CSV, ODS, JSON, NDJSON, XML. Schema validation, streaming, tree-shakeable."
     />
     <link
       rel="icon"
@@ -19,13 +19,15 @@
     <main id="app">
       <header>
         <h1><span class="accent">hucre</span></h1>
-        <p>Zero-dependency spreadsheet engine &mdash; XLSX, CSV, ODS</p>
+        <p>Zero-dependency spreadsheet engine &mdash; XLSX, CSV, ODS, JSON, NDJSON, XML</p>
       </header>
 
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="read" role="tab">Read XLSX</button>
         <button class="tab" data-tab="write" role="tab">Write XLSX</button>
         <button class="tab" data-tab="csv" role="tab">CSV</button>
+        <button class="tab" data-tab="json" role="tab">JSON</button>
+        <button class="tab" data-tab="xml" role="tab">XML</button>
         <button class="tab" data-tab="schema" role="tab">Schema</button>
         <button class="tab" data-tab="streaming" role="tab">Streaming</button>
         <button class="tab" data-tab="ods" role="tab">ODS</button>
@@ -215,6 +217,150 @@ Sensor,45.99,SNS-005,64,true</textarea
               <button class="btn primary" id="csv-parse">Parse CSV</button>
               <button class="btn" id="csv-copy" disabled>Copy JSON</button>
               <button class="btn" id="csv-to-xlsx" disabled>Export as XLSX</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════ JSON / NDJSON ═══════ -->
+      <section class="panel" data-panel="json">
+        <p class="panel-desc">
+          Parse JSON arrays, objects with single-array properties, or NDJSON (JSON Lines). Nested
+          objects flatten into dot-path keys. Round-trip back to NDJSON or XLSX.
+        </p>
+        <div class="split">
+          <div class="controls">
+            <details class="section" open>
+              <summary>Mode</summary>
+              <div class="field-grid">
+                <div class="field">
+                  <label> <input type="radio" name="json-mode" value="json" checked /> JSON </label>
+                </div>
+                <div class="field">
+                  <label> <input type="radio" name="json-mode" value="ndjson" /> NDJSON </label>
+                </div>
+              </div>
+            </details>
+
+            <div class="field full">
+              <label for="json-input">Input</label>
+              <textarea id="json-input" rows="14" spellcheck="false">
+[
+  {
+    "sku": "P-1",
+    "name": "Oak Plank",
+    "pricing": { "cost": 100, "retail": 180 },
+    "tags": ["wood", "oak"]
+  },
+  {
+    "sku": "P-2",
+    "name": "Pine Board",
+    "pricing": { "cost": 60, "retail": 120 },
+    "tags": ["wood", "pine"]
+  }
+]</textarea
+              >
+            </div>
+
+            <details class="section" open>
+              <summary>Parse Options</summary>
+              <div class="field-grid">
+                <div class="field">
+                  <label>
+                    <input id="json-flatten" type="checkbox" checked /> Flatten Nested
+                  </label>
+                </div>
+                <div class="field">
+                  <label for="json-array-join">Array Join</label>
+                  <input id="json-array-join" type="text" value=", " />
+                </div>
+                <div class="field full">
+                  <label for="json-rows-at">rowsAt path (optional)</label>
+                  <input id="json-rows-at" type="text" placeholder="e.g. data.products" />
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="preview">
+            <div class="output" id="json-output">
+              <p style="color: var(--text-dim); text-align: center; padding: 3rem 0">
+                Edit input and click "Parse"
+              </p>
+            </div>
+            <div class="actions">
+              <button class="btn primary" id="json-parse">Parse</button>
+              <button class="btn" id="json-to-ndjson" disabled>Export NDJSON</button>
+              <button class="btn" id="json-to-xlsx" disabled>Export XLSX</button>
+              <button class="btn" id="json-copy" disabled>Copy JSON</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════ XML ═══════ -->
+      <section class="panel" data-panel="xml">
+        <p class="panel-desc">
+          Read tabular XML — auto-detects the most-frequent repeating element as the row tag.
+          Attributes prefix with <code>@</code>. Use cases: GS1 GDSN, Trendyol, SAP B1, Logo GO,
+          Netsis, marketplace product feeds.
+        </p>
+        <div class="split">
+          <div class="controls">
+            <div class="field full">
+              <label for="xml-input">XML Input</label>
+              <textarea id="xml-input" rows="14" spellcheck="false">
+&lt;Catalog&gt;
+  &lt;Product code="P-1"&gt;
+    &lt;Name&gt;Oak Plank&lt;/Name&gt;
+    &lt;Pricing currency="USD"&gt;
+      &lt;Cost&gt;100&lt;/Cost&gt;
+      &lt;Retail&gt;180&lt;/Retail&gt;
+    &lt;/Pricing&gt;
+  &lt;/Product&gt;
+  &lt;Product code="P-2"&gt;
+    &lt;Name&gt;Pine Board&lt;/Name&gt;
+    &lt;Pricing currency="USD"&gt;
+      &lt;Cost&gt;60&lt;/Cost&gt;
+      &lt;Retail&gt;120&lt;/Retail&gt;
+    &lt;/Pricing&gt;
+  &lt;/Product&gt;
+&lt;/Catalog&gt;</textarea
+              >
+            </div>
+
+            <details class="section" open>
+              <summary>Parse Options</summary>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="xml-row-tag">rowTag (auto if empty)</label>
+                  <input id="xml-row-tag" type="text" placeholder="auto" />
+                </div>
+                <div class="field">
+                  <label for="xml-attr-prefix">attrPrefix</label>
+                  <input id="xml-attr-prefix" type="text" value="@" />
+                </div>
+                <div class="field">
+                  <label> <input id="xml-flatten" type="checkbox" checked /> Flatten </label>
+                </div>
+                <div class="field">
+                  <label> <input id="xml-strip-ns" type="checkbox" /> Strip Namespaces </label>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="preview">
+            <div class="output" id="xml-output">
+              <p style="color: var(--text-dim); text-align: center; padding: 3rem 0">
+                Edit XML and click "Parse"
+              </p>
+            </div>
+            <div class="actions">
+              <button class="btn primary" id="xml-parse">Parse</button>
+              <button class="btn" id="xml-roundtrip" disabled>Round-trip XML</button>
+              <button class="btn" id="xml-to-xlsx" disabled>Export XLSX</button>
+              <button class="btn" id="xml-copy" disabled>Copy JSON</button>
             </div>
           </div>
         </div>
@@ -434,6 +580,8 @@ Sensor,45.99,64,true</textarea
               <button class="btn primary" id="export-html">HTML</button>
               <button class="btn primary" id="export-md">Markdown</button>
               <button class="btn primary" id="export-json">JSON</button>
+              <button class="btn primary" id="export-ndjson">NDJSON</button>
+              <button class="btn primary" id="export-xml">XML</button>
               <button class="btn" id="export-copy" disabled>Copy</button>
             </div>
           </div>

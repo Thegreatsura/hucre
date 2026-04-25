@@ -14,6 +14,13 @@ import {
   toMarkdown,
   toJson,
   formatValue,
+  parseJson,
+  parseNdjson,
+  writeJson,
+  writeNdjson,
+  readXml,
+  writeXml,
+  writeXlsxObjects,
 } from "hucre";
 import type { CellValue, WriteSheet, SchemaDefinition, Sheet } from "hucre";
 
@@ -810,10 +817,204 @@ function setupExport() {
     }
   });
 
+  $("export-ndjson").addEventListener("click", async () => {
+    const output = $("export-output");
+    try {
+      const sheet = await loadExportSheet();
+      const data = sheetToObjectsLocal(sheet);
+      const out = writeNdjson(data);
+      lastExportText = out;
+      output.innerHTML = `<pre style="font-size:0.8rem;line-height:1.5;color:var(--text-muted)">${escapeHtml(out)}</pre>`;
+      ($("export-copy") as HTMLButtonElement).disabled = false;
+    } catch (e: unknown) {
+      output.innerHTML = `<p class="error">${escapeHtml(String(e))}</p>`;
+    }
+  });
+
+  $("export-xml").addEventListener("click", async () => {
+    const output = $("export-output");
+    try {
+      const sheet = await loadExportSheet();
+      const data = sheetToObjectsLocal(sheet);
+      const out = writeXml(data, { rootTag: "rows", rowTag: "row", pretty: true });
+      lastExportText = out;
+      output.innerHTML = `<pre style="font-size:0.8rem;line-height:1.5;color:var(--text-muted)">${escapeHtml(out)}</pre>`;
+      ($("export-copy") as HTMLButtonElement).disabled = false;
+    } catch (e: unknown) {
+      output.innerHTML = `<p class="error">${escapeHtml(String(e))}</p>`;
+    }
+  });
+
   $("export-copy").addEventListener("click", () => {
     if (!lastExportText) return;
     navigator.clipboard.writeText(lastExportText);
     toast("Copied to clipboard");
+  });
+}
+
+// Local helper: build objects from a Sheet's rows (first row = headers).
+function sheetToObjectsLocal(sheet: Sheet): Record<string, CellValue>[] {
+  if (sheet.rows.length === 0) return [];
+  const headers = sheet.rows[0]!.map((h) =>
+    h === null || h === undefined ? "" : String(h).trim(),
+  );
+  const out: Record<string, CellValue>[] = [];
+  for (let i = 1; i < sheet.rows.length; i++) {
+    const row = sheet.rows[i]!;
+    const obj: Record<string, CellValue> = {};
+    for (let j = 0; j < headers.length; j++) {
+      obj[headers[j]!] = j < row.length ? (row[j] ?? null) : null;
+    }
+    out.push(obj);
+  }
+  return out;
+}
+
+// ── JSON / NDJSON ─────────────────────────────────────────────────
+
+function setupJson() {
+  let lastResult: { data: Record<string, CellValue>[]; headers: string[] } | null = null;
+
+  function getMode(): "json" | "ndjson" {
+    const checked = document.querySelector<HTMLInputElement>('input[name="json-mode"]:checked');
+    return (checked?.value as "json" | "ndjson") ?? "json";
+  }
+
+  $("json-parse").addEventListener("click", () => {
+    const output = $("json-output");
+    try {
+      const input = ($("json-input") as HTMLTextAreaElement).value;
+      const flatten = ($("json-flatten") as HTMLInputElement).checked;
+      const arrayJoin = ($("json-array-join") as HTMLInputElement).value || ", ";
+      const rowsAt = ($("json-rows-at") as HTMLInputElement).value.trim() || undefined;
+      const mode = getMode();
+
+      const result =
+        mode === "ndjson"
+          ? parseNdjson(input, { flatten, arrayJoin })
+          : parseJson(input, { flatten, arrayJoin, rowsAt });
+
+      lastResult = result;
+      const tableRows = result.data.map((row) => result.headers.map((h) => row[h] ?? null));
+
+      const stats = `<div class="meta">${result.data.length} rows × ${result.headers.length} columns · mode: ${mode}</div>`;
+      output.innerHTML = stats + renderTable(result.headers, tableRows);
+
+      ($("json-to-ndjson") as HTMLButtonElement).disabled = false;
+      ($("json-to-xlsx") as HTMLButtonElement).disabled = false;
+      ($("json-copy") as HTMLButtonElement).disabled = false;
+    } catch (e: unknown) {
+      output.innerHTML = `<p class="error">${escapeHtml(String(e))}</p>`;
+    }
+  });
+
+  $("json-to-ndjson").addEventListener("click", () => {
+    if (!lastResult) return;
+    const output = $("json-output");
+    const ndjson = writeNdjson(lastResult.data);
+    output.innerHTML = `<pre style="font-size:0.8rem;line-height:1.5;color:var(--text-muted)">${escapeHtml(ndjson)}</pre>`;
+  });
+
+  $("json-to-xlsx").addEventListener("click", async () => {
+    if (!lastResult) return;
+    try {
+      const xlsx = await writeXlsxObjects(lastResult.data, {
+        sheetName: "Imported",
+        headers: lastResult.headers,
+      });
+      const blob = new Blob([new Uint8Array(xlsx)], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "imported.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("Downloaded imported.xlsx");
+    } catch (e: unknown) {
+      toast(`Error: ${String(e)}`);
+    }
+  });
+
+  $("json-copy").addEventListener("click", () => {
+    if (!lastResult) return;
+    navigator.clipboard.writeText(writeJson(lastResult.data, { pretty: true }));
+    toast("Copied JSON to clipboard");
+  });
+}
+
+// ── XML ──────────────────────────────────────────────────────────
+
+function setupXml() {
+  let lastResult: {
+    data: Record<string, CellValue>[];
+    headers: string[];
+    rowTag: string;
+  } | null = null;
+
+  $("xml-parse").addEventListener("click", () => {
+    const output = $("xml-output");
+    try {
+      const input = ($("xml-input") as HTMLTextAreaElement).value;
+      const rowTag = ($("xml-row-tag") as HTMLInputElement).value.trim() || undefined;
+      const attrPrefix = ($("xml-attr-prefix") as HTMLInputElement).value || "@";
+      const flatten = ($("xml-flatten") as HTMLInputElement).checked;
+      const stripNamespaces = ($("xml-strip-ns") as HTMLInputElement).checked;
+
+      const result = readXml(input, { rowTag, attrPrefix, flatten, stripNamespaces });
+      lastResult = result;
+
+      const tableRows = result.data.map((row) => result.headers.map((h) => row[h] ?? null));
+
+      const stats = `<div class="meta">rowTag: <code>${escapeHtml(result.rowTag)}</code> · ${result.data.length} rows × ${result.headers.length} columns</div>`;
+      output.innerHTML = stats + renderTable(result.headers, tableRows);
+
+      ($("xml-roundtrip") as HTMLButtonElement).disabled = false;
+      ($("xml-to-xlsx") as HTMLButtonElement).disabled = false;
+      ($("xml-copy") as HTMLButtonElement).disabled = false;
+    } catch (e: unknown) {
+      output.innerHTML = `<p class="error">${escapeHtml(String(e))}</p>`;
+    }
+  });
+
+  $("xml-roundtrip").addEventListener("click", () => {
+    if (!lastResult) return;
+    const output = $("xml-output");
+    const xml = writeXml(lastResult.data, {
+      rootTag: "Catalog",
+      rowTag: lastResult.rowTag || "row",
+      pretty: true,
+    });
+    output.innerHTML = `<pre style="font-size:0.8rem;line-height:1.5;color:var(--text-muted)">${escapeHtml(xml)}</pre>`;
+  });
+
+  $("xml-to-xlsx").addEventListener("click", async () => {
+    if (!lastResult) return;
+    try {
+      const xlsx = await writeXlsxObjects(lastResult.data, {
+        sheetName: lastResult.rowTag || "Imported",
+        headers: lastResult.headers,
+      });
+      const blob = new Blob([new Uint8Array(xlsx)], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "xml-import.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("Downloaded xml-import.xlsx");
+    } catch (e: unknown) {
+      toast(`Error: ${String(e)}`);
+    }
+  });
+
+  $("xml-copy").addEventListener("click", () => {
+    if (!lastResult) return;
+    navigator.clipboard.writeText(writeJson(lastResult.data, { pretty: true }));
+    toast("Copied JSON to clipboard");
   });
 }
 
@@ -869,6 +1070,8 @@ export function setupApp() {
   setupRead();
   setupWrite();
   setupCsv();
+  setupJson();
+  setupXml();
   setupSchema();
   setupStreaming();
   setupOds();
