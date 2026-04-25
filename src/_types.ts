@@ -627,9 +627,44 @@ export interface Workbook {
 
 // ── Read Options ───────────────────────────────────────────────────
 
+/**
+ * Lightweight metadata exposed to a {@link ReadOptions.sheets} predicate
+ * before the worksheet body is parsed. Includes the cheaply-known fields
+ * read from the workbook directory — name, index, and visibility state.
+ *
+ * `hidden` and `veryHidden` are XLSX-only; ODS does not expose visibility
+ * in the table directory and they will be `undefined`.
+ */
+export interface SheetFilterInfo {
+  /** Sheet name as declared in the workbook directory. */
+  name: string;
+  /** 0-based position in the workbook's sheet list. */
+  index: number;
+  /** XLSX `<sheet state="hidden">`. Undefined for ODS. */
+  hidden?: boolean;
+  /** XLSX `<sheet state="veryHidden">`. Undefined for ODS. */
+  veryHidden?: boolean;
+}
+
+/**
+ * Predicate form of {@link ReadOptions.sheets}. Receives one
+ * {@link SheetFilterInfo} per sheet in workbook order; returning `true`
+ * includes the sheet, `false` skips it.
+ */
+export type SheetFilter = (info: SheetFilterInfo, index: number) => boolean;
+
 export interface ReadOptions {
-  /** Which sheets to read (by index or name). Default: all */
-  sheets?: Array<number | string>;
+  /**
+   * Which sheets to read.
+   * - `Array<number | string>` — explicit indexes and/or names.
+   * - `(info, index) => boolean` — predicate evaluated against
+   *   {@link SheetFilterInfo} before each worksheet body is parsed.
+   *   Useful for selecting by visibility, e.g.
+   *   `sheets: (info) => !info.hidden && !info.veryHidden`.
+   *
+   * Default: all sheets.
+   */
+  sheets?: Array<number | string> | SheetFilter;
   /** Which row is the header row (1-based). Default: none */
   headerRow?: number;
   /** Schema for validation and type coercion */

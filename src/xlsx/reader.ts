@@ -990,8 +990,28 @@ function findRIdAttr(attrs: Record<string, string>): string | undefined {
 }
 
 /** Filter sheet infos based on user-specified sheets option */
-function filterSheets(allSheets: SheetInfo[], filter?: Array<number | string>): SheetInfo[] {
-  if (!filter || filter.length === 0) return allSheets;
+function filterSheets(allSheets: SheetInfo[], filter?: ReadOptions["sheets"]): SheetInfo[] {
+  if (filter === undefined) return allSheets;
+
+  if (typeof filter === "function") {
+    const result: SheetInfo[] = [];
+    for (let i = 0; i < allSheets.length; i++) {
+      const info = allSheets[i]!;
+      const decision = filter(
+        {
+          name: info.name,
+          index: i,
+          hidden: info.state === "hidden",
+          veryHidden: info.state === "veryHidden",
+        },
+        i,
+      );
+      if (decision) result.push(info);
+    }
+    return result;
+  }
+
+  if (filter.length === 0) return allSheets;
 
   const result: SheetInfo[] = [];
   for (const spec of filter) {

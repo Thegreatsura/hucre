@@ -206,6 +206,8 @@ export type {
   ReadOptions,
   ReadInput,
   ReadResult,
+  SheetFilter,
+  SheetFilterInfo,
   // Write
   WriteOptions,
   WriteSheet,

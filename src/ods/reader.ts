@@ -301,12 +301,22 @@ function parseContentXml(xml: string, options?: ReadOptions): Sheet[] {
     const name = table.attrs["table:name"] ?? `Sheet${sheets.length + 1}`;
 
     // Filter sheets if specified
-    if (options?.sheets && options.sheets.length > 0) {
-      const shouldRead = options.sheets.some((spec) => {
-        if (typeof spec === "string") return spec === name;
-        if (typeof spec === "number") return spec === sheets.length;
-        return false;
-      });
+    if (options?.sheets !== undefined) {
+      const filter = options.sheets;
+      const idx = sheets.length;
+      let shouldRead: boolean;
+      if (typeof filter === "function") {
+        // ODS does not expose visibility state in the table directory.
+        shouldRead = filter({ name, index: idx }, idx);
+      } else if (filter.length === 0) {
+        shouldRead = true;
+      } else {
+        shouldRead = filter.some((spec) => {
+          if (typeof spec === "string") return spec === name;
+          if (typeof spec === "number") return spec === idx;
+          return false;
+        });
+      }
       if (!shouldRead) {
         sheets.push({ name, rows: [] }); // placeholder to maintain index
         continue;
@@ -484,17 +494,22 @@ function parseContentXml(xml: string, options?: ReadOptions): Sheet[] {
   }
 
   // If filter was applied, remove placeholder sheets with empty rows
-  if (options?.sheets && options.sheets.length > 0) {
-    return sheets.filter(
-      (s) =>
-        s.rows.length > 0 ||
-        s.merges !== undefined ||
-        s.cells !== undefined ||
-        options.sheets!.some((spec) => {
-          if (typeof spec === "string") return spec === s.name;
-          return false;
-        }),
-    );
+  if (options?.sheets !== undefined) {
+    const filter = options.sheets;
+    return sheets.filter((s, idx) => {
+      if (s.rows.length > 0 || s.merges !== undefined || s.cells !== undefined) {
+        return true;
+      }
+      // Empty sheets that were genuinely selected by the filter must be kept.
+      if (typeof filter === "function") {
+        return filter({ name: s.name, index: idx }, idx);
+      }
+      if (filter.length === 0) return true;
+      return filter.some((spec) => {
+        if (typeof spec === "string") return spec === s.name;
+        return false;
+      });
+    });
   }
 
   return sheets;
