@@ -40,6 +40,12 @@ export interface CellXf {
   applyBorder?: boolean;
   applyAlignment?: boolean;
   applyProtection?: boolean;
+  /**
+   * Excel 2024 checkbox feature: this xf carries an `<extLst>` with the
+   * `{C7286773-470A-42A8-94C5-96B5CB345126}` complement extension. Cells
+   * referencing this xf render as native checkboxes in Excel 365.
+   */
+  hasCheckboxFeature?: boolean;
 }
 
 // ── Built-in Number Formats ──────────────────────────────────────────
@@ -410,10 +416,26 @@ function parseCellXf(el: XmlElement): CellXf {
       xf.alignment = parseAlignment(child);
     } else if (local === "protection") {
       xf.protection = parseProtection(child);
+    } else if (local === "extLst") {
+      if (extListHasCheckboxFeature(child)) {
+        xf.hasCheckboxFeature = true;
+      }
     }
   }
 
   return xf;
+}
+
+const FPB_XF_EXT_URI = "{C7286773-470A-42A8-94C5-96B5CB345126}";
+
+function extListHasCheckboxFeature(el: XmlElement): boolean {
+  for (const child of el.children) {
+    if (typeof child === "string") continue;
+    const local = child.local || child.tag;
+    if (local !== "ext") continue;
+    if (child.attrs["uri"] === FPB_XF_EXT_URI) return true;
+  }
+  return false;
 }
 
 function parseProtection(el: XmlElement): CellProtection {

@@ -4,6 +4,7 @@
 import type { WriteOptions, WriteOutput, NamedRange } from "../_types";
 import { ZipWriter } from "../zip/writer";
 import { writeContentTypes } from "./content-types-writer";
+import { writeFeaturePropertyBagXml } from "./feature-property-bag";
 import type { ContentTypesOptions } from "./content-types-writer";
 import { writeRootRels, writeWorkbookXml, writeWorkbookRels } from "./workbook-writer";
 import { createStylesCollector } from "./styles-writer";
@@ -158,6 +159,7 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
 
   // [Content_Types].xml
   const hasMacros = options.vbaProject !== undefined && options.vbaProject.length > 0;
+  const hasFeaturePropertyBag = styles.hasCheckboxFeature();
 
   const ctOpts: ContentTypesOptions = {
     sheetCount: sheets.length,
@@ -170,6 +172,7 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
     hasAppProps: true,
     hasCustomProps,
     hasMacros,
+    hasFeaturePropertyBag,
   };
   zip.add("[Content_Types].xml", encoder.encode(writeContentTypes(ctOpts)));
 
@@ -208,7 +211,9 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
   // xl/_rels/workbook.xml.rels
   zip.add(
     "xl/_rels/workbook.xml.rels",
-    encoder.encode(writeWorkbookRels(sheets.length, hasSharedStrings, hasMacros)),
+    encoder.encode(
+      writeWorkbookRels(sheets.length, hasSharedStrings, hasMacros, hasFeaturePropertyBag),
+    ),
   );
 
   // xl/styles.xml
@@ -223,6 +228,13 @@ export async function writeXlsx(options: WriteOptions): Promise<WriteOutput> {
   }
 
   // xl/vbaProject.bin (if macros provided)
+  if (hasFeaturePropertyBag) {
+    zip.add(
+      "xl/featurePropertyBag/featurePropertyBag.xml",
+      encoder.encode(writeFeaturePropertyBagXml()),
+    );
+  }
+
   if (hasMacros) {
     zip.add("xl/vbaProject.bin", options.vbaProject!);
   }

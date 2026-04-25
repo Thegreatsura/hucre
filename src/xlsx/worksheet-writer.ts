@@ -143,6 +143,7 @@ export function writeSharedStringsXml(sharedStrings: SharedStringsCollector): st
 interface ResolvedCell {
   value: CellValue;
   style?: CellStyle;
+  checkbox?: boolean;
   formula?: string;
   formulaResult?: CellValue;
   formulaType?: "shared" | "array";
@@ -644,6 +645,7 @@ function resolveRows(sheet: WriteSheet): Array<Array<ResolvedCell | null>> {
       row[c] = {
         value: cellOverride.value ?? existing?.value ?? null,
         style: cellOverride.style ?? existing?.style,
+        checkbox: cellOverride.checkbox ?? existing?.checkbox,
         formula: cellOverride.formula ?? existing?.formula,
         formulaResult: cellOverride.formulaResult ?? existing?.formulaResult,
         formulaType: cellOverride.formulaType ?? existing?.formulaType,
@@ -693,7 +695,12 @@ function serializeCell(
     };
   }
 
-  if (effectiveStyle) {
+  if (resolved.checkbox) {
+    // Excel 2024 checkboxes are tied to the xf, not the cell. The xf is
+    // tagged with the FeaturePropertyBag complement and cells reference it
+    // via `s="N"`. Style is preserved if provided.
+    styleIdx = styles.addCheckboxStyle(effectiveStyle);
+  } else if (effectiveStyle) {
     styleIdx = styles.addStyle(effectiveStyle);
   }
 

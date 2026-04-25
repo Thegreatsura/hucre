@@ -210,10 +210,19 @@ function borderKey(b: BorderStyle): string {
 export interface StylesCollector {
   /** Register a cell style, return its xf index */
   addStyle(style: CellStyle): number;
+  /**
+   * Register a cell style and tag the resulting xf with the Excel 2024
+   * checkbox feature complement. Returns the xf index. Same `style` is
+   * deduped against other checkbox xfs but kept distinct from a non-checkbox
+   * xf with identical visuals so the `<extLst>` is emitted on the right one.
+   */
+  addCheckboxStyle(style?: CellStyle): number;
   /** Register a number format, return its numFmt id */
   addNumFmt(format: string): number;
   /** Register a differential format (for conditional formatting), return its dxfId */
   addDxf(style: CellStyle): number;
+  /** True when at least one checkbox xf has been registered. */
+  hasCheckboxFeature(): boolean;
   /** Generate the complete styles.xml */
   toXml(): string;
 }
@@ -246,6 +255,8 @@ interface XfEntry {
   borderId: number;
   alignment?: AlignmentStyle;
   protection?: CellProtection;
+  /** Excel 2024 checkbox feature: emit `<extLst>` with xfComplement. */
+  hasCheckboxFeature?: boolean;
 }
 
 export function createStylesCollector(defaultFont?: FontStyle): StylesCollector {
@@ -383,6 +394,14 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
   }
 
   function addStyle(style: CellStyle): number {
+    return registerXf(style, false);
+  }
+
+  function addCheckboxStyle(style?: CellStyle): number {
+    return registerXf(style ?? {}, true);
+  }
+
+  function registerXf(style: CellStyle, checkbox: boolean): number {
     const fontId = style.font ? addFont(style.font) : 0;
     const fillId = style.fill ? addFill(style.fill) : 0;
     const borderId = style.border ? addBorder(style.border) : 0;
@@ -395,6 +414,7 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
       `b:${borderId}`,
       `a:${alignmentKey(style.alignment)}`,
       `p:${protectionKey(style.protection)}`,
+      checkbox ? "cb:1" : "cb:0",
     ].join("|");
 
     const existing = xfMap.get(key);
@@ -409,9 +429,15 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
       borderId,
       alignment: style.alignment,
       protection: style.protection,
+      hasCheckboxFeature: checkbox || undefined,
     });
     xfMap.set(key, id);
     return id;
+  }
+
+  function hasCheckboxFeature(): boolean {
+    for (const xf of xfs) if (xf.hasCheckboxFeature) return true;
+    return false;
   }
 
   function serializeAlignment(a: AlignmentStyle): string {
@@ -491,14 +517,32 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
 
       const hasAlignment = xf.alignment !== undefined;
       const hasProtection = xf.protection !== undefined;
+      const hasCheckbox = xf.hasCheckboxFeature === true;
 
       if (hasAlignment) attrs["applyAlignment"] = true;
       if (hasProtection) attrs["applyProtection"] = true;
 
-      if (hasAlignment || hasProtection) {
+      if (hasAlignment || hasProtection || hasCheckbox) {
         const innerChildren: string[] = [];
         if (hasAlignment) innerChildren.push(serializeAlignment(xf.alignment!));
         if (hasProtection) innerChildren.push(serializeProtection(xf.protection!));
+        if (hasCheckbox) {
+          innerChildren.push(
+            xmlElement(
+              "extLst",
+              undefined,
+              xmlElement(
+                "ext",
+                {
+                  uri: "{C7286773-470A-42A8-94C5-96B5CB345126}",
+                  "xmlns:xfpb":
+                    "http://schemas.microsoft.com/office/spreadsheetml/2022/featurepropertybag",
+                },
+                xmlSelfClose("xfpb:xfComplement", { i: "0" }),
+              ),
+            ),
+          );
+        }
         return xmlElement("xf", attrs, innerChildren);
       }
 
@@ -551,8 +595,10 @@ export function createStylesCollector(defaultFont?: FontStyle): StylesCollector 
 
   return {
     addStyle,
+    addCheckboxStyle,
     addNumFmt,
     addDxf,
+    hasCheckboxFeature,
     toXml,
   };
 }

@@ -48,6 +48,8 @@ export interface ContentTypesOptions {
   hasCustomProps?: boolean;
   /** Whether VBA macros are present (xl/vbaProject.bin). Uses XLSM content types. */
   hasMacros?: boolean;
+  /** Whether Excel 2024 checkbox FeaturePropertyBag is present. */
+  hasFeaturePropertyBag?: boolean;
 }
 
 /** Generate [Content_Types].xml for XLSX */
@@ -170,6 +172,16 @@ export function writeContentTypes(
         }),
       );
     }
+  }
+
+  // Override for FeaturePropertyBag (Excel 2024 checkboxes)
+  if (opts.hasFeaturePropertyBag) {
+    children.push(
+      xmlSelfClose("Override", {
+        PartName: "/xl/featurePropertyBag/featurePropertyBag.xml",
+        ContentType: "application/vnd.ms-excel.featurepropertybag+xml",
+      }),
+    );
   }
 
   // Override for docProps

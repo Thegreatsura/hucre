@@ -178,6 +178,16 @@ export interface Cell {
   value: CellValue;
   type: CellType;
   style?: CellStyle;
+  /**
+   * Render this cell as an Excel 2024 native checkbox. Only meaningful for
+   * boolean cells; the value drives the checked state.
+   *
+   * Implemented via Microsoft's FeaturePropertyBag extension to OOXML
+   * (the `{C7286773-470A-42A8-94C5-96B5CB345126}` cell-XF complement).
+   * Requires Microsoft 365; older Excel and LibreOffice fall back to the
+   * raw `TRUE`/`FALSE` value.
+   */
+  checkbox?: boolean;
   formula?: string;
   formulaResult?: CellValue;
   /** Formula type: "shared" | "array". Undefined means normal formula. */

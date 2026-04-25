@@ -118,12 +118,15 @@ export function writeWorkbookXml(
 }
 
 const REL_VBA_PROJECT = "http://schemas.microsoft.com/office/2006/relationships/vbaProject";
+const REL_FEATURE_PROPERTY_BAG =
+  "http://schemas.microsoft.com/office/2022/11/relationships/FeaturePropertyBag";
 
 /** Generate xl/_rels/workbook.xml.rels */
 export function writeWorkbookRels(
   sheetCount: number,
   hasSharedStrings: boolean,
   hasMacros?: boolean,
+  hasFeaturePropertyBag?: boolean,
 ): string {
   const children: string[] = [];
 
@@ -178,6 +181,18 @@ export function writeWorkbookRels(
         Id: `rId${nextRid}`,
         Type: REL_VBA_PROJECT,
         Target: "vbaProject.bin",
+      }),
+    );
+    nextRid++;
+  }
+
+  // FeaturePropertyBag relationship (Excel 2024 checkboxes)
+  if (hasFeaturePropertyBag) {
+    children.push(
+      xmlSelfClose("Relationship", {
+        Id: `rId${nextRid}`,
+        Type: REL_FEATURE_PROPERTY_BAG,
+        Target: "featurePropertyBag/featurePropertyBag.xml",
       }),
     );
   }

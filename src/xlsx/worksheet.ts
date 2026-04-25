@@ -1513,11 +1513,19 @@ function processCell(
   // Set the value in the rows array
   rows[row][col] = value;
 
+  // Detect Excel 2024 checkbox feature on this cell's xf — independent of
+  // readStyles so the flag round-trips even without full style hydration.
+  const isCheckbox =
+    ctx.styles && styleIndex >= 0
+      ? (ctx.styles.cellXfs[styleIndex]?.hasCheckboxFeature ?? false)
+      : false;
+
   // Build Cell object if there's detail beyond the raw value
   const hasDetails =
     formula !== undefined ||
     richText !== undefined ||
     (ctx.readStyles && ctx.styles && styleIndex >= 0) ||
+    isCheckbox ||
     cellType === "error" ||
     cellType === "formula" ||
     cellType === "richText";
@@ -1527,6 +1535,9 @@ function processCell(
       value,
       type: cellType,
     };
+    if (isCheckbox) {
+      cell.checkbox = true;
+    }
     if (formula !== undefined) {
       cell.formula = formula;
       if (formulaResult !== undefined) {
