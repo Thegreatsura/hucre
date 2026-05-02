@@ -540,6 +540,11 @@ for (const sheet of wb.sheets) {
     console.log(chart.legend, chart.barGrouping);
     // e.g. "bottom" "stacked"
 
+    // chart.axes carries per-axis labels pulled from <c:catAx>/<c:valAx>
+    // <c:title>. Only populated axes show up — pie/doughnut never do.
+    console.log(chart.axes);
+    // e.g. { x: { title: "Quarter" }, y: { title: "Revenue (USD)" } }
+
     for (const s of chart.series ?? []) {
       console.log(s.kind, s.index, s.name, s.valuesRef, s.categoriesRef, s.color);
       // e.g. "bar" 0 "Revenue" "Sheet1!$B$2:$B$10" "Sheet1!$A$2:$A$10" "1F77B4"
@@ -570,7 +575,12 @@ without a `legendPos`, and the matching writer label otherwise;
 `barGrouping` is pulled from the first `<c:barChart>` and only
 surfaces the stacked variants (the OOXML `standard` value collapses
 to `undefined` since the writer treats it as the unspecified default,
-and non-bar charts never report a grouping).
+and non-bar charts never report a grouping). `Chart.axes` mirrors
+the writer-side `SheetChart.axes` and surfaces per-axis labels: `x`
+is the category axis (or, for scatter, the first value axis) and
+`y` is the value axis. Empty / whitespace-only `<c:title>` text is
+dropped, charts without any axis label leave `axes` undefined, and
+pie/doughnut charts (which have no axes in OOXML) never report one.
 Sheets that hucre actively regenerates because they
 also carry hucre-managed images currently keep the chart bodies but
 lose the in-drawing chart anchor — merging hucre's drawing output
@@ -618,8 +628,13 @@ embedded apostrophes are doubled per the OOXML spec). `barGrouping`
 toggles `clustered` / `stacked` / `percentStacked`, `legend` accepts
 `top` / `bottom` / `left` / `right` / `topRight` / `false`, and
 `altText` / `frameTitle` flow through to the drawing's `xdr:cNvPr`
-attributes for screen readers. Doughnut, radar, stock, 3D variants,
-trendlines, and combo charts are out of scope for Phase 1.
+attributes for screen readers. `axes: { x: { title }, y: { title } }`
+attaches per-axis labels — `x` lands inside `<c:catAx>` (or the X
+value axis for scatter), `y` inside the value axis. Empty or
+whitespace-only titles are silently dropped, and pie charts ignore
+the field because OOXML defines no axes for them. Doughnut, radar,
+stock, 3D variants, trendlines, and combo charts are out of scope
+for Phase 1.
 
 #### Cloning a parsed chart with `cloneChart`
 
@@ -653,7 +668,10 @@ writer can author collapse onto their write counterparts (`bar` /
 `bar3D` → `column`, `doughnut` / `pie3D` → `pie`, `line3D` → `line`,
 `area3D` → `area`); kinds with no analog (`bubble`, `radar`,
 `surface`, `stock`, `ofPie`) require an explicit `options.type`
-override.
+override. Axis titles inherit from the source by default; pass
+`axes: { y: { title: "Revenue" } }` to replace one side, `null` to
+drop an inherited label, and the writer drops the entire `axes`
+block automatically when the resolved type is `pie`.
 
 #### Walking and adding charts with `getCharts` / `addChart`
 
