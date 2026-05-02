@@ -203,6 +203,7 @@ const REL_FEATURE_PROPERTY_BAG =
 const REL_PERSON = "http://schemas.microsoft.com/office/2017/10/relationships/person";
 const REL_EXTERNAL_LINK =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLink";
+const REL_CELL_IMAGES = "http://www.wps.cn/officeDocument/2017/relationships/cellimage";
 const REL_PIVOT_CACHE_DEFINITION =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition";
 const REL_SLICER_CACHE = "http://schemas.microsoft.com/office/2007/relationships/slicerCache";
@@ -244,6 +245,7 @@ export function writeWorkbookRels(
   pivotCacheRels?: ReadonlyArray<PivotCacheRel>,
   slicerCacheRels?: ReadonlyArray<CacheRel>,
   timelineCacheRels?: ReadonlyArray<CacheRel>,
+  hasCellImages?: boolean,
 ): string {
   const children: string[] = [];
 
@@ -327,7 +329,9 @@ export function writeWorkbookRels(
     nextRid++;
   }
 
-  // External link relationships (caller supplies pre-assigned rIds)
+  // External link relationships (caller supplies pre-assigned rIds).
+  // Bump nextRid past them so anything emitted afterwards (cellImages
+  // and friends) keeps unique ids.
   if (externalLinkRels) {
     for (const link of externalLinkRels) {
       children.push(
@@ -338,6 +342,20 @@ export function writeWorkbookRels(
         }),
       );
     }
+    nextRid += externalLinkRels.length;
+  }
+
+  // WPS-style cell-images registry (xl/cellimages.xml). Always declared
+  // last so its rId follows everything else.
+  if (hasCellImages) {
+    children.push(
+      xmlSelfClose("Relationship", {
+        Id: `rId${nextRid}`,
+        Type: REL_CELL_IMAGES,
+        Target: "cellimages.xml",
+      }),
+    );
+    nextRid++;
   }
 
   // Pivot cache definition relationships (caller supplies pre-assigned rIds

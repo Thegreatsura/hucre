@@ -374,6 +374,19 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
   slicerIndices.sort((a, b) => a - b);
   timelineIndices.sort((a, b) => a - b);
 
+  // Detect WPS-style cell-images registry. The XML body and its rels
+  // sit at xl/cellimages.xml and xl/_rels/cellimages.xml.rels — both
+  // survive in `_rawEntries`, but the workbook.xml.rels is regenerated
+  // and must re-declare the relationship so Excel/WPS still resolve
+  // `=_xlfn.DISPIMG("<id>", 1)` formulas.
+  //
+  // The media each entry references usually lives under `xl/media/` —
+  // those paths would normally be filtered out as "regenerated" because
+  // sheet drawings re-emit them, so we collect the explicit paths here
+  // and preserve them later.
+  const hasCellImages = workbook._rawEntries.has("xl/cellimages.xml");
+  const cellImageMediaPaths = collectCellImageMediaPaths(workbook._rawEntries);
+
   // rIds for external link relationships: assigned after all
   // sheet/styles/sharedStrings/theme/macros/featurePropertyBag/persons rIds.
   let nextWorkbookRelId = computeExternalLinkRelStart(
@@ -387,6 +400,12 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
     rId: `rId${nextWorkbookRelId++}`,
     target: `externalLinks/externalLink${idx}.xml`,
   }));
+  // Reserve an rId for the WPS cell-images registry, when present, so it
+  // sits between externalLinks and pivot caches in workbook.xml.rels.
+  // The id is pre-assigned here (rather than computed inside
+  // writeWorkbookRels) so the pre-assigned pivot / slicer / timeline
+  // rIds further down can't collide with it.
+  if (hasCellImages) nextWorkbookRelId++;
   // rIds for pivot cache definition relationships. The same rIds also
   // flow into the workbook.xml `<pivotCaches>` block so cache references
   // stay sound.
@@ -452,6 +471,12 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
           }
         }
       }
+      // Cell-image media files would normally be swept up by the
+      // `xl/media/image` prefix; force-preserve the ones cellimages.xml
+      // actually references so the DISPIMG formulas keep resolving.
+      if (isRegenerated && cellImageMediaPaths.has(lowerPath)) {
+        isRegenerated = false;
+      }
       if (!isRegenerated) {
         // Preserve this entry as-is (don't compress, keep original bytes)
         zip.add(path, data, { compress: false });
@@ -473,6 +498,7 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
       threadedCommentSheetIndices.length > 0 ? threadedCommentSheetIndices : undefined,
     hasPersons: hasPersons || undefined,
     externalLinkIndices: externalLinkIndices.length > 0 ? externalLinkIndices : undefined,
+    hasCellImages: hasCellImages || undefined,
     pivotTableIndices: pivotTableIndices.length > 0 ? pivotTableIndices : undefined,
     pivotCacheDefinitionIndices:
       pivotCacheDefinitionIndices.length > 0 ? pivotCacheDefinitionIndices : undefined,
@@ -528,6 +554,7 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
         pivotCacheRels.length > 0 ? pivotCacheRels : undefined,
         slicerCacheRels.length > 0 ? slicerCacheRels : undefined,
         timelineCacheRels.length > 0 ? timelineCacheRels : undefined,
+        hasCellImages,
       ),
     ),
   );
@@ -731,6 +758,40 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Pull the set of media paths referenced by `xl/_rels/cellimages.xml.rels`
+ * out of the raw entry map. Returns lowercase paths so the caller can
+ * match case-insensitively against the prefix filter. Returns an empty
+ * set when the rels part is missing.
+ */
+function collectCellImageMediaPaths(rawEntries: ReadonlyMap<string, Uint8Array>): Set<string> {
+  const out = new Set<string>();
+  const relsBytes = rawEntries.get("xl/_rels/cellimages.xml.rels");
+  if (!relsBytes) return out;
+  const relsXml = new TextDecoder("utf-8").decode(relsBytes);
+  // Targets are relative to xl/cellimages.xml, so we resolve them
+  // against `xl/`. Anything starting with `/` is package-absolute.
+  const re = /Target\s*=\s*"([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(relsXml)) !== null) {
+    const target = m[1];
+    let resolved: string;
+    if (target.startsWith("/")) {
+      resolved = target.slice(1);
+    } else {
+      // Resolve `../media/imageN.png` against `xl/`
+      const parts = "xl/".split("/").filter(Boolean);
+      for (const seg of target.split("/").filter(Boolean)) {
+        if (seg === "..") parts.pop();
+        else if (seg !== ".") parts.push(seg);
+      }
+      resolved = parts.join("/");
+    }
+    out.add(resolved.toLowerCase());
+  }
+  return out;
+}
 
 const REL_TYPE_SLICER = /\/relationships\/slicer$/;
 const REL_TYPE_TIMELINE = /\/relationships\/timeline$/;

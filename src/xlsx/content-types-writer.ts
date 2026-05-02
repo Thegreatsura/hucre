@@ -23,6 +23,9 @@ const CT_THREADED_COMMENTS = "application/vnd.ms-excel.threadedcomments+xml";
 const CT_PERSON = "application/vnd.ms-excel.person+xml";
 const CT_EXTERNAL_LINK =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml";
+// WPS-style cell-embedded images. Excel and WPS both declare this part
+// with the generic drawing content type.
+const CT_CELL_IMAGES = "application/vnd.openxmlformats-officedocument.drawing+xml";
 const CT_PIVOT_TABLE = "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml";
 const CT_PIVOT_CACHE_DEFINITION =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml";
@@ -65,6 +68,11 @@ export interface ContentTypesOptions {
    * `Override` for `/xl/externalLinks/externalLinkN.xml`.
    */
   externalLinkIndices?: number[];
+  /**
+   * Whether `xl/cellimages.xml` (WPS DISPIMG cell-embedded image
+   * registry) is present and should be re-declared as an Override.
+   */
+  hasCellImages?: boolean;
   /**
    * 1-based indices of pivot table parts. Each entry adds an
    * `Override` for `/xl/pivotTables/pivotTableN.xml`.
@@ -266,6 +274,16 @@ export function writeContentTypes(
         }),
       );
     }
+  }
+
+  // Override for the WPS-style cell-images registry, when preserved.
+  if (opts.hasCellImages) {
+    children.push(
+      xmlSelfClose("Override", {
+        PartName: "/xl/cellimages.xml",
+        ContentType: CT_CELL_IMAGES,
+      }),
+    );
   }
 
   // Override for each pivot table

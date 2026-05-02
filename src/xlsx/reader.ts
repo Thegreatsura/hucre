@@ -12,6 +12,7 @@ import type {
   TableColumn,
   ThreadedCommentPerson,
   ExternalLink,
+  CellImage,
   PivotCache,
   PivotTable,
   SlicerCache,
@@ -19,6 +20,7 @@ import type {
 } from "../_types";
 import { parsePersons, parseThreadedComments } from "./threaded-comments-reader";
 import { parseExternalLink } from "./external-link-reader";
+import { assembleCellImages, parseCellImages, REL_CELL_IMAGES } from "./cell-images-reader";
 import { attachPivotCacheFields, parsePivotCacheDefinition, parsePivotTable } from "./pivot-reader";
 import {
   parseSlicers,
@@ -232,7 +234,43 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
     externalLinks.push(parseExternalLink(linkXml, linkRelsXml));
   }
 
-  // 7e. Parse pivot caches (xl/pivotCache/pivotCacheDefinitionN.xml).
+  // 7e. Parse WPS-style cell-embedded images (xl/cellimages.xml).
+  // The workbook.xml.rels file declares the part with a WPS namespace
+  // type; cells reference each entry through `=_xlfn.DISPIMG("<id>", 1)`
+  // formulas. Real-world XLSX files produced by WPS / Kingsoft Office
+  // routinely carry this part and recent Excel versions round-trip it.
+  let cellImages: CellImage[] | undefined;
+  const cellImagesRel = workbookRels.find((r) => r.type === REL_CELL_IMAGES);
+  if (cellImagesRel) {
+    const cellImagesPath = resolvePath(workbookDir, cellImagesRel.target);
+    if (zip.has(cellImagesPath)) {
+      const ciXml = decodeUtf8(await zip.extract(cellImagesPath));
+      const refs = parseCellImages(ciXml);
+
+      // Resolve each embed rId against the sibling _rels file and
+      // pre-load the binaries so `assembleCellImages` stays sync.
+      const ciRelsPath = relsPathFor(cellImagesPath);
+      const ciDir = dirname(cellImagesPath);
+      const media = new Map<string, { data: Uint8Array; type: SheetImage["type"] }>();
+      if (zip.has(ciRelsPath)) {
+        const ciRelsXml = decodeUtf8(await zip.extract(ciRelsPath));
+        for (const rel of parseRelationships(ciRelsXml)) {
+          if (!matchesRelType(rel.type, "image")) continue;
+          const mediaPath = resolvePath(ciDir, rel.target);
+          if (!zip.has(mediaPath)) continue;
+          const ext = mediaPath.split(".").pop()?.toLowerCase() ?? "";
+          const type = EXT_TO_IMAGE_TYPE[ext];
+          if (!type) continue;
+          media.set(rel.id, { data: await zip.extract(mediaPath), type });
+        }
+      }
+
+      const assembled = assembleCellImages(refs, media);
+      if (assembled.length > 0) cellImages = assembled;
+    }
+  }
+
+  // 7f. Parse pivot caches (xl/pivotCache/pivotCacheDefinitionN.xml).
   // The workbook's <pivotCaches> block ties each cacheId to an rId in
   // workbook.xml.rels; we walk that pairing and resolve each cache.
   // The cache definitions also surface a `hasRecords` flag based on
@@ -266,7 +304,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
     .map((ref) => pivotCachesByCacheId.get(ref.cacheId))
     .filter((c): c is PivotCache => c !== undefined);
 
-  // 7f. Parse slicer caches (xl/slicerCaches/slicerCacheN.xml).
+  // 7g. Parse slicer caches (xl/slicerCaches/slicerCacheN.xml).
   // Excel 2010+ slicers — declared from workbook.xml.rels with
   // Type=".../slicerCache". Sort by trailing index so the array order is
   // stable across files.
@@ -282,7 +320,7 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
     if (cache) slicerCaches.push(cache);
   }
 
-  // 7g. Parse timeline caches (xl/timelineCaches/timelineCacheN.xml).
+  // 7h. Parse timeline caches (xl/timelineCaches/timelineCacheN.xml).
   // Excel 2013+ timeline slicers — Type=".../timelineCache".
   const timelineCacheRels = workbookRels
     .filter((r) => matchesRelType(r.type, "timelineCache"))
@@ -570,6 +608,10 @@ export async function readXlsx(input: ReadInput, options?: ReadOptions): Promise
 
   if (externalLinks.length > 0) {
     workbook.externalLinks = externalLinks;
+  }
+
+  if (cellImages && cellImages.length > 0) {
+    workbook.cellImages = cellImages;
   }
 
   if (pivotCaches.length > 0) {
