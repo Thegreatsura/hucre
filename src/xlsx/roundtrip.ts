@@ -54,6 +54,9 @@ const REL_COMMENTS = "http://schemas.openxmlformats.org/officeDocument/2006/rela
 const REL_VML_DRAWING =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing";
 const REL_TABLE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
+const REL_THREADED_COMMENT =
+  "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment";
+const REL_PERSON = "http://schemas.microsoft.com/office/2017/10/relationships/person";
 
 /**
  * Parts that defter regenerates from parsed data.
@@ -280,6 +283,16 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
     }
   }
 
+  // Detect Excel 365 threaded comments + persons surviving in raw entries.
+  // Threaded comments live at xl/threadedComments/threadedCommentN.xml where
+  // N matches the worksheet's 1-based index, so we just probe each sheet.
+  const threadedCommentSheetIndices: number[] = [];
+  for (let i = 0; i < worksheetResults.length; i++) {
+    const probe = `xl/threadedComments/threadedComment${i + 1}.xml`;
+    if (workbook._rawEntries.has(probe)) threadedCommentSheetIndices.push(i + 1);
+  }
+  const hasPersons = workbook._rawEntries.has("xl/persons/person.xml");
+
   // Collect external link parts that survived in the raw entries.
   // Roundtrip preserves the externalLinkN.xml bodies and their _rels;
   // the workbook.xml + workbook.xml.rels are regenerated and need to
@@ -291,12 +304,13 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
   }
   externalLinkIndices.sort((a, b) => a - b);
   // rIds for external link relationships: assigned after all
-  // sheet/styles/sharedStrings/theme/macros/featurePropertyBag rIds.
+  // sheet/styles/sharedStrings/theme/macros/featurePropertyBag/persons rIds.
   const externalLinkRelStart = computeExternalLinkRelStart(
     writeSheets.length,
     hasSharedStrings,
     !!workbook.hasMacros,
     false, // featurePropertyBag — not yet roundtripped
+    hasPersons,
   );
   const externalLinkRels = externalLinkIndices.map((idx, i) => ({
     rId: `rId${externalLinkRelStart + i}`,
@@ -347,6 +361,9 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
     imageExtensions: imageExtensions.size > 0 ? imageExtensions : undefined,
     commentIndices: commentIndices.length > 0 ? commentIndices : undefined,
     tableIndices: allTableIndices.length > 0 ? allTableIndices : undefined,
+    threadedCommentSheetIndices:
+      threadedCommentSheetIndices.length > 0 ? threadedCommentSheetIndices : undefined,
+    hasPersons: hasPersons || undefined,
     externalLinkIndices: externalLinkIndices.length > 0 ? externalLinkIndices : undefined,
     hasCoreProps: true,
     hasAppProps: true,
@@ -385,7 +402,8 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
         writeSheets.length,
         hasSharedStrings,
         workbook.hasMacros,
-        false,
+        false, // hasFeaturePropertyBag — not yet roundtripped
+        hasPersons,
         externalLinkRels.length > 0 ? externalLinkRels : undefined,
       ),
     ),
@@ -412,8 +430,9 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
     const hasDrawing = drawing !== null && result.drawingRId !== null;
     const hasComments = comments !== null && result.legacyDrawingRId !== null;
     const hasTables = result.tables.length > 0;
+    const hasThreadedComments = threadedCommentSheetIndices.includes(i + 1);
 
-    if (hasHyperlinks || hasDrawing || hasComments || hasTables) {
+    if (hasHyperlinks || hasDrawing || hasComments || hasTables || hasThreadedComments) {
       const relElements: string[] = [];
 
       for (const rel of result.hyperlinkRelationships) {
@@ -464,6 +483,27 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
         );
       }
 
+      // Threaded comments (Excel 365). The rId only needs to be unique
+      // within this rels file — pick the next id past everything we've
+      // already emitted for this sheet.
+      if (hasThreadedComments) {
+        const usedIds = new Set<number>();
+        for (const r of result.hyperlinkRelationships) usedIds.add(relIdNum(r.id));
+        if (result.drawingRId) usedIds.add(relIdNum(result.drawingRId));
+        if (result.legacyDrawingRId) usedIds.add(relIdNum(result.legacyDrawingRId));
+        if (result.commentsRId) usedIds.add(relIdNum(result.commentsRId));
+        for (const t of result.tables) usedIds.add(relIdNum(t.rId));
+        let next = 1;
+        while (usedIds.has(next)) next++;
+        relElements.push(
+          xmlSelfClose("Relationship", {
+            Id: `rId${next}`,
+            Type: REL_THREADED_COMMENT,
+            Target: `../threadedComments/threadedComment${i + 1}.xml`,
+          }),
+        );
+      }
+
       const relsXml = xmlDocument("Relationships", { xmlns: NS_RELATIONSHIPS }, relElements);
       zip.add(`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, encoder.encode(relsXml));
     }
@@ -508,18 +548,25 @@ export async function saveXlsx(workbook: RoundtripWorkbook): Promise<Uint8Array>
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+/** Numeric value for the digits at the end of an `rIdNN` identifier. */
+function relIdNum(rId: string): number {
+  const m = rId.match(/(\d+)$/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 /**
  * Mirror the `nextRid` counter inside `writeWorkbookRels` to determine
  * the starting rId for external link relationships. Keep this in sync
  * with `writeWorkbookRels` — order is: worksheets, styles, optional
  * sharedStrings, theme, optional vbaProject, optional FeaturePropertyBag,
- * then externalLinks.
+ * optional persons, then externalLinks.
  */
 function computeExternalLinkRelStart(
   sheetCount: number,
   hasSharedStrings: boolean,
   hasMacros: boolean,
   hasFeaturePropertyBag: boolean,
+  hasPersons: boolean,
 ): number {
   let next = sheetCount + 1; // worksheets occupy rId1..rId{sheetCount}
   next++; // styles
@@ -527,6 +574,7 @@ function computeExternalLinkRelStart(
   next++; // theme
   if (hasMacros) next++;
   if (hasFeaturePropertyBag) next++;
+  if (hasPersons) next++;
   return next;
 }
 

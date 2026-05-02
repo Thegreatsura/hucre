@@ -947,7 +947,7 @@ Contributions are welcome! Please [open an issue](https://github.com/productdevb
 - Formula evaluation engine
 - File encryption/decryption (AES-256, MS-OFFCRYPTO)
 - Pivot table creation
-- Threaded comments (Excel 365+)
+- Threaded comments (Excel 365+) — synthesize from a fresh write (read + roundtrip already supported)
 - Checkboxes (Excel 2024+)
 - VBA/macro injection
 - Slicers & timeline filters
