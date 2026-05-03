@@ -707,6 +707,16 @@ collapse to `undefined` so absence and the default round-trip
 identically through `cloneChart`. Reverse can fire on either or both
 axes independently — bar / column / line / area / scatter all support
 it; pie / doughnut never report it because they have no axes.
+`Chart.roundedCorners` surfaces the chart-frame
+`<c:chartSpace><c:roundedCorners val=".."/>` flag — Excel's "Format
+Chart Area → Border → Rounded corners" toggle. The element sits on
+`<c:chartSpace>` (a sibling of `<c:chart>`) because it styles the
+outer frame rather than the plot area. The OOXML default `false`
+collapses to `undefined` so absence and `<c:roundedCorners val="0"/>`
+round-trip identically; only an explicit `val="1"` surfaces `true`.
+The reader accepts the OOXML truthy / falsy spellings (`"1"` / `"true"`
+/ `"0"` / `"false"`); unknown values and missing `val` attributes drop
+to `undefined`.
 `ChartSeriesInfo.smooth` surfaces the per-series
 `<c:ser><c:smooth val=".."/>` flag — Excel's "Format Data Series →
 Line → Smoothed line" toggle — only on `line` / `line3D` / `scatter`
@@ -881,6 +891,16 @@ the chart), matching Excel's reference serialization. Pin
 chart (`val="0"`). The writer always emits the element so the
 rendered intent is explicit on roundtrip — no chart family is special-
 cased.
+The chart-level `roundedCorners` field maps to
+`<c:roundedCorners val=".."/>` on `<c:chartSpace>` (a sibling of
+`<c:chart>`, not a child) — Excel's "Format Chart Area → Border →
+Rounded corners" toggle. Absent it, the writer emits the OOXML default
+`val="0"` (square chart frame), matching Excel's reference
+serialization. Pin `roundedCorners: true` to soften the chart frame's
+outer edge (`val="1"`). The writer always emits the element so the
+rendered intent is explicit on roundtrip — no chart family is
+special-cased, since the toggle styles the outer wrapper rather than
+any chart-family-specific markup.
 The `axes.x.tickLblSkip` and `axes.x.tickMarkSkip` fields thin out a
 crowded category axis (`<c:catAx><c:tickLblSkip val=".."/>` and
 `<c:catAx><c:tickMarkSkip val=".."/>`). Pass a positive integer to
@@ -1061,6 +1081,13 @@ The chart-level `plotVisOnly` flag follows the same grammar: pass
 back to the writer's OOXML `true` default (hidden cells drop out), or
 a `boolean` to replace it. Like `dispBlanksAs` and `varyColors`, the
 field lives on `<c:chart>` and is valid on every chart family, so a
+coercion (line → column, doughnut → pie, etc.) preserves the
+inherited value rather than dropping it.
+The chart-level `roundedCorners` flag follows the same grammar: pass
+`undefined` to inherit the source's parsed value, `null` to drop it
+back to the writer's OOXML `false` default (square chart frame), or a
+`boolean` to replace it. Like `plotVisOnly` / `varyColors`, the field
+lives on `<c:chartSpace>` and is valid on every chart family, so a
 coercion (line → column, doughnut → pie, etc.) preserves the
 inherited value rather than dropping it.
 The per-axis `axes.x.tickLblSkip` and `axes.x.tickMarkSkip` overrides
