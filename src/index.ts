@@ -157,6 +157,7 @@ export type {
   ChartMarkerSymbol,
   ChartProtection,
   ChartSeriesInfo,
+  ChartView3D,
 } from "./_types";
 
 // ── Date Utilities ─────────────────────────────────────────────────
