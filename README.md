@@ -698,6 +698,13 @@ axis does not surface a field the writer would never emit anyway. The
 OOXML default `1` (show every label / mark) collapses to `undefined`;
 out-of-range values (non-positive or > 32767) drop rather than clamp
 so a malformed input cannot leak into the writer.
+`ChartAxisInfo.lblOffset` surfaces the category-axis label-offset
+percentage (`<c:catAx><c:lblOffset val=".."/>`). Same scope as the
+tick skips above — `CT_CatAx` / `CT_DateAx` only — and the same
+default-collapse semantics: the OOXML default `100` (Excel's
+reference label spacing) collapses to `undefined` so absence and the
+default round-trip identically; out-of-range values (negative or
+greater than 1000) drop rather than clamp.
 `ChartAxisInfo.hidden` surfaces the per-axis `<c:delete val=".."/>`
 flag — Excel's "Format Axis -> Show axis" toggle. Only an explicit
 `val="1"` (axis hidden) surfaces `true`; the OOXML default `val="0"`,
@@ -919,6 +926,19 @@ fields live on category axes only — bar / column / line / area
 honour them; scatter (whose two axes are value axes) and pie /
 doughnut (no axes at all) silently ignore them. Non-integer inputs
 round to the nearest integer.
+The `axes.x.lblOffset` field controls the distance between the tick
+labels and the axis line on a category axis (`<c:catAx><c:lblOffset
+val=".."/>`), expressed as a percentage of Excel's default spacing.
+Pass a value in the `0..1000` band to pull labels in towards the axis
+or push them out. The writer always emits `<c:lblOffset>` because
+Excel's reference serialization includes it on every category axis;
+absence (and the OOXML default `100`) emit `val="100"` so untouched
+charts match the reference output byte-for-byte. Out-of-range values
+(negative or greater than 1000) drop silently rather than clamp — the
+writer falls back to the default `100`. Same scope as the tick skips
+above: bar / column / line / area honour the override; scatter and
+pie / doughnut silently ignore it. Non-integer inputs round to the
+nearest integer.
 The per-axis `axes.x.hidden` and `axes.y.hidden` flags toggle
 `<c:catAx><c:delete val=".."/>` / `<c:valAx><c:delete val=".."/>` —
 Excel's "Format Axis -> Show axis" toggle. Set `true` to collapse the
@@ -1116,6 +1136,15 @@ slot in the rendered chart) and when the target is `pie` or
 `doughnut` (no axes at all) — flattening a column template into a
 scatter clone therefore never leaks a stale catAx skip into the
 output.
+The per-axis `axes.x.lblOffset` override follows the same `undefined`
+(inherit) / `null` (drop) / number (replace) grammar. An explicit
+override of `100` (the OOXML default) collapses to `undefined` so it
+behaves identically to `null` — both leave the cloned chart with
+Excel's default label spacing. Same scope-restriction as the tick
+skips: the inherited offset is dropped silently when the resolved
+clone target is `scatter` or `pie` / `doughnut`, so flattening a
+column template into a scatter clone never leaks a stale catAx offset
+into the output.
 The per-axis `axes.x.hidden` and `axes.y.hidden` overrides follow the
 same `undefined` (inherit) / `null` (drop) / `boolean` (replace)
 grammar. Because `<c:delete>` lives on every axis flavour, the flag
