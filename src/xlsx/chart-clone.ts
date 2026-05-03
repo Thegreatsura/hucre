@@ -294,6 +294,18 @@ export interface CloneChartOptions {
        * scope rules as {@link tickLblSkip}.
        */
       tickMarkSkip?: number | null;
+      /**
+       * Override `SheetChart.axes.x.hidden`. `undefined` (or omitted)
+       * inherits the source axis's flag; `null` drops the inherited
+       * value (the writer falls back to the OOXML `false` default —
+       * axis visible); a `boolean` replaces it. Useful when porting a
+       * "hide axis" template to a chart that should reveal its axis,
+       * or vice versa.
+       *
+       * Silently dropped when the resolved chart type is `pie` /
+       * `doughnut` since neither has axes.
+       */
+      hidden?: boolean | null;
     };
     y?: {
       title?: string | null;
@@ -306,6 +318,8 @@ export interface CloneChartOptions {
       minorTickMark?: ChartAxisTickMark | null;
       /** See {@link CloneChartOptions.axes.x.tickLblPos}. */
       tickLblPos?: ChartAxisTickLabelPosition | null;
+      /** See {@link CloneChartOptions.axes.x.hidden}. */
+      hidden?: boolean | null;
       /** See {@link CloneChartOptions.axes.x.reverse}. */
       reverse?: boolean | null;
     };
@@ -945,6 +959,12 @@ function resolveAxes(
   const xTickMarkSkip = isCatAxisX
     ? applySkipOverride(sourceAxes?.x?.tickMarkSkip, overrides?.x?.tickMarkSkip)
     : undefined;
+  // `<c:delete>` lives on every axis flavour — both `<c:catAx>` and
+  // `<c:valAx>` accept it — so the hidden flag carries through every
+  // chart family that has axes. Pie / doughnut have no axes at all
+  // and the caller already short-circuited those above.
+  const xHidden = applyHiddenOverride(sourceAxes?.x?.hidden, overrides?.x?.hidden);
+  const yHidden = applyHiddenOverride(sourceAxes?.y?.hidden, overrides?.y?.hidden);
 
   const out: NonNullable<SheetChart["axes"]> = {};
   if (
@@ -957,7 +977,8 @@ function resolveAxes(
     xTickLblPos !== undefined ||
     xReverse !== undefined ||
     xTickLblSkip !== undefined ||
-    xTickMarkSkip !== undefined
+    xTickMarkSkip !== undefined ||
+    xHidden !== undefined
   ) {
     out.x = {};
     if (xTitle !== undefined) out.x.title = xTitle;
@@ -970,6 +991,7 @@ function resolveAxes(
     if (xReverse !== undefined) out.x.reverse = xReverse;
     if (xTickLblSkip !== undefined) out.x.tickLblSkip = xTickLblSkip;
     if (xTickMarkSkip !== undefined) out.x.tickMarkSkip = xTickMarkSkip;
+    if (xHidden !== undefined) out.x.hidden = xHidden;
   }
   if (
     yTitle !== undefined ||
@@ -979,6 +1001,7 @@ function resolveAxes(
     yMajorTickMark !== undefined ||
     yMinorTickMark !== undefined ||
     yTickLblPos !== undefined ||
+    yHidden !== undefined ||
     yReverse !== undefined
   ) {
     out.y = {};
@@ -989,6 +1012,7 @@ function resolveAxes(
     if (yMajorTickMark !== undefined) out.y.majorTickMark = yMajorTickMark;
     if (yMinorTickMark !== undefined) out.y.minorTickMark = yMinorTickMark;
     if (yTickLblPos !== undefined) out.y.tickLblPos = yTickLblPos;
+    if (yHidden !== undefined) out.y.hidden = yHidden;
     if (yReverse !== undefined) out.y.reverse = yReverse;
   }
 
@@ -1017,6 +1041,26 @@ function applySkipOverride(
   const rounded = Math.round(override);
   if (rounded < 1 || rounded > 32767 || rounded === 1) return undefined;
   return rounded;
+}
+
+/**
+ * Resolve an axis `hidden` override using the same `undefined`
+ * (inherit) / `null` (drop) / `boolean` (replace) grammar as the
+ * other axis helpers. Only `true` surfaces (the writer treats `false`
+ * and absence identically — both produce `<c:delete val="0"/>`), so
+ * an override of `false` collapses to `undefined` to keep the cloned
+ * `SheetChart` shape minimal. Non-boolean inputs fall through the
+ * type guard to `undefined`.
+ */
+function applyHiddenOverride(
+  source: boolean | undefined,
+  override: boolean | null | undefined,
+): boolean | undefined {
+  if (override === undefined) {
+    return source === true ? true : undefined;
+  }
+  if (override === null) return undefined;
+  return override === true ? true : undefined;
 }
 
 /**

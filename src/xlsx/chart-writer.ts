@@ -161,6 +161,14 @@ function buildPlotArea(chart: SheetChart, sheetName: string): string {
     // catAx builder is the only consumer of these knobs.
     xTickLblSkip: normalizeAxisSkip(chart.axes?.x?.tickLblSkip),
     xTickMarkSkip: normalizeAxisSkip(chart.axes?.x?.tickMarkSkip),
+    // `<c:delete>` lives on every axis flavour (CT_CatAx / CT_ValAx /
+    // CT_DateAx / CT_SerAx). The writer always emits the element —
+    // Excel's reference serialization includes `<c:delete val="0"/>`
+    // on every axis — so the axis builders read these flags directly
+    // rather than skipping the element on `false`. Non-boolean inputs
+    // collapse to `false` to keep the on-the-wire output stable.
+    xHidden: normalizeAxisHidden(chart.axes?.x?.hidden),
+    yHidden: normalizeAxisHidden(chart.axes?.y?.hidden),
   };
 
   switch (chart.type) {
@@ -231,6 +239,15 @@ interface AxisRenderOptions {
    * is `<c:catAx>`. Same scope rule as {@link xTickLblSkip}.
    */
   xTickMarkSkip: number | undefined;
+  /**
+   * Whether the X axis should render its `<c:delete>` element with
+   * `val="1"` (axis hidden). Always defined — `false` keeps Excel's
+   * reference `val="0"` while `true` collapses the axis line, ticks,
+   * and labels off the rendered chart.
+   */
+  xHidden: boolean;
+  /** Whether the Y axis should render hidden. Same shape as {@link xHidden}. */
+  yHidden: boolean;
 }
 
 /**
@@ -357,6 +374,18 @@ function normalizeAxisSkip(value: number | undefined): number | undefined {
   if (rounded < 1 || rounded > 32767) return undefined;
   if (rounded === 1) return undefined;
   return rounded;
+}
+
+/**
+ * Normalize an axis `hidden` flag to a strict boolean. Anything other
+ * than literal `true` collapses to `false` so the writer never emits
+ * `<c:delete val="1"/>` from a stray non-boolean leaking through the
+ * type guard (e.g. `0` / `1` / `"true"` / `null`). This matches how
+ * `roundedCorners` / `plotVisOnly` / `varyColors` treat their inputs:
+ * a literal boolean is the only path to a non-default value.
+ */
+function normalizeAxisHidden(value: boolean | undefined): boolean {
+  return value === true;
 }
 
 /**
@@ -631,7 +660,7 @@ function buildBarAxes(orientation: "bar" | "column", opts: AxisRenderOptions): s
   const catAxChildren: string[] = [
     xmlSelfClose("c:axId", { val: AXIS_ID_CAT }),
     buildAxisScaling(opts.xScale, opts.xReverse),
-    xmlSelfClose("c:delete", { val: 0 }),
+    xmlSelfClose("c:delete", { val: opts.xHidden ? 1 : 0 }),
     xmlSelfClose("c:axPos", { val: catPos }),
     ...buildAxisGridlines(opts.xGridlines),
   ];
@@ -656,7 +685,7 @@ function buildBarAxes(orientation: "bar" | "column", opts: AxisRenderOptions): s
   const valAxChildren: string[] = [
     xmlSelfClose("c:axId", { val: AXIS_ID_VAL }),
     buildAxisScaling(opts.yScale, opts.yReverse),
-    xmlSelfClose("c:delete", { val: 0 }),
+    xmlSelfClose("c:delete", { val: opts.yHidden ? 1 : 0 }),
     xmlSelfClose("c:axPos", { val: valPos }),
     ...buildAxisGridlines(opts.yGridlines),
   ];
@@ -874,7 +903,7 @@ function buildScatterAxes(opts: AxisRenderOptions): string[] {
   const xAxChildren: string[] = [
     xmlSelfClose("c:axId", { val: AXIS_ID_VAL_X }),
     buildAxisScaling(opts.xScale, opts.xReverse),
-    xmlSelfClose("c:delete", { val: 0 }),
+    xmlSelfClose("c:delete", { val: opts.xHidden ? 1 : 0 }),
     xmlSelfClose("c:axPos", { val: "b" }),
     ...buildAxisGridlines(opts.xGridlines),
   ];
@@ -891,7 +920,7 @@ function buildScatterAxes(opts: AxisRenderOptions): string[] {
   const yAxChildren: string[] = [
     xmlSelfClose("c:axId", { val: AXIS_ID_VAL_Y }),
     buildAxisScaling(opts.yScale, opts.yReverse),
-    xmlSelfClose("c:delete", { val: 0 }),
+    xmlSelfClose("c:delete", { val: opts.yHidden ? 1 : 0 }),
     xmlSelfClose("c:axPos", { val: "l" }),
     ...buildAxisGridlines(opts.yGridlines),
   ];
